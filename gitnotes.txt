@@ -1,0 +1,4 @@
+
+https://stackoverflow.com/questions/55267414/cant-get-spyder-to-work-with-git-what-am-i-doing-wrong
+https://stackoverflow.com/questions/3311774/how-to-convert-existing-non-empty-directory-into-a-git-working-directory-and-pus
+

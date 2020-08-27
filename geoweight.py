@@ -24,6 +24,8 @@ from numpy.random import rand
 
 
 
+
+
 def get_delta(wh, beta, xmat):
     # wh, beta, xmat
     # returns vector of constants, 1 per household
