@@ -72,12 +72,95 @@ def get_delta(wh, beta, xmat):
     delta = np.log(wh / beta_x.sum(axis=0))  # axis=0 gives colsums
     return delta
 
+# get_weights <- function(beta, delta, xmat) {
+#    calculate state-specific weights for each household that will add to
+#      their return an h x s matrix with weight for each state s for each
+#    household h for each household the state weights will add to the
+#      total weight
+
+#    beta: s x k matrix of poisson model coefficients that apply to all
+#      households
+#    delta: h-length vector of household-specific constants
+#    xmat: h x k matrix of characteristics for each household
+
+#     # See (Khitatrakun, Mermin, Francis, 2016, p.4)
+
+#     # calc s x h matrix: each row has the sum over k of
+#  beta[s_i, k] * x[h_j, k] for each household where s_i is the
+#  state in row i each column is
+#     # a specific household
+#     beta_x <- beta %*% t(xmat)  #
+#     # add the delta vector of household constants to every row
+#  of beta_x and transpose
+#     beta_xd <- apply(beta_x, 1, function(mat) mat + delta)
+#     exp(beta_xd)  # exponentiate to calculate the weights
+# }
+
+
+def get_weights(beta, delta, xmat):
+    """
+    Calculate state-specific weights for each household.
+
+    Definitions:
+    h: number of households
+    k: number of characteristics each household has
+    s: number of states or geographic areas
+
+    See (Khitatrakun, Mermin, Francis, 2016, p.4)
+
+    Parameters
+    ----------
+    beta : matrix
+        s x k matrix of coefficients for the poisson function that generates
+        state weights.
+    delta : vector
+        h-length vector of constants (one per household) for the poisson
+        function that generates state weights.
+    xmat : matrix
+        h x k matrix of characteristics (data) for households.
+
+    Returns
+    -------
+    matrix of dimension h x s.
+
+    """
+    # begin by calculating beta_x, an s x h matrix:
+    #   each row has the sum over k of beta[s_i, k] * x[h_j, k]
+    #     for each household where s_i is the state in row i
+    #   each column is a specific household
+    beta_x = np.dot(beta, xmat.T)
+
+    # add the delta vector of household constants to every row
+    # of beta_x and transpose
+    # beta_xd <- apply(beta_x, 1, function(mat) mat + delta)
+    beta_xd = (beta_x + delta).T
+
+    weights = np.exp(beta_xd)
+
+    return weights
+
+# targets_mat <- function(betavec, wh, xmat, s) {
+#    return an s x k matrix of calculated targets, given a beta vector,
+#      household weights, and x matrix
+#     beta <- vtom(betavec, s)
+#     delta <- get_delta(wh, beta, xmat)
+#     whs <- get_weights(beta, delta, xmat)
+#     t(whs) %*% xmat
+# }
+
 
 # %% experiment
 
 xmat = np.array([[1, 2],
                  [4, 5],
                  [7, 8]])
+
+x = np.array([[1, 2],
+              [4, 5],
+              [7, 8]])
+np.ones(2)
+x + np.ones(2)
+x + np.array([7, 11])
 
 wh = np.array(range(1, 4)).T
 wh
@@ -122,8 +205,15 @@ xmat[0, 1]
 xmat.shape
 xmat.size
 xmat.ndim
-xmat.reshape(6)
 xmat.reshape(xmat.size)
+xmat.flatten()
+
+xvec = xmat.flatten()
+xmat2 = xvec.reshape(xmat.shape)
+xmat
+xmat2
+
+
 xmat.reshape(xmat.size, order='F')
 
 # %% define data for simple r problem -- geoweight example
@@ -147,41 +237,59 @@ targets = np.array([[55.50609, 73.20929],
                     [61.16143, 80.59494],
                     [56.79071, 75.41574]])
 
-beta0 = np.zeros([s, k])
-
 # for test purpose, also define a matrix that has some zeroes
 targetsz = np.array([[55.50609, 73.20929],
                      [0, 80.59494],
                      [56.79071, 0]])
 
 
-# %% use data from r problem
+# %% check, using data from r problem
 wh
 xmat
 xmat.T
 targets
-beta0
-
-dw = get_diff_weights(targets)
-dw
-# get_diff_weights(targetsz)  # test the case where we have zeroes
+targetsz
 
 np.sum(xmat, axis=0)  # colsums
 xmat.sum(axis=0)
 np.sum(xmat, axis=1)  # rowsums
 
-tmp = get_delta(wh, beta0, xmat)
-tmp
-tmp.shape  # s x h
+dw = get_diff_weights(targets)
+dw
+# get_diff_weights(targetsz)  # test the case where we have zeroes
+
+beta0 = np.zeros([s, k])
+beta0
+
+delta0 = get_delta(wh, beta0, xmat)
+delta0
+
+whs0 = get_weights(beta0, delta0, xmat)
+whs0
 
 
-# %% results from r problem
+# %% results from r problem - for checking against
+
 # dw from get_dweights should be:
 # 1.801604 1.635017 1.760851 1.365947 1.240773 1.325983
 
 # delta when the beta matrix is 0 should be:
 # 2.673062, 2.838026, 2.567032, 2.762710, 2.707713,
 #     2.683379, 2.521871, 2.457231, 2.720219, 2.770873
+
+# state weights when beta is 0 and we use the associated delta:
+# > whs0
+#           [,1]     [,2]     [,3]
+#  [1,] 14.48426 14.48426 14.48426
+#  [2,] 17.08202 17.08202 17.08202
+#  [3,] 13.02710 13.02710 13.02710
+#  [4,] 15.84272 15.84272 15.84272
+#  [5,] 14.99494 14.99494 14.99494
+#  [6,] 14.63447 14.63447 14.63447
+#  [7,] 12.45187 12.45187 12.45187
+#  [8,] 11.67245 11.67245 11.67245
+#  [9,] 15.18365 15.18365 15.18365
+# [10,] 15.97258 15.97258 15.97258
 
 # sse_weighted 5.441764e-21
 
@@ -197,7 +305,7 @@ tmp.shape  # s x h
 # [2,] 61.16143 80.59494
 # [3,] 56.79071 75.41574
 
-# $whs
+# $whs (optimal)
 #           [,1]     [,2]     [,3]
 #  [1,] 13.90740 15.09438 14.45099
 #  [2,] 16.34579 18.13586 16.76441
