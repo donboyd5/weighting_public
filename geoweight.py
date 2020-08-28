@@ -16,32 +16,57 @@ from numpy.random import rand
 # %% functions
 
 # get_dweights <- function(targets, goal = 100) {
-#     # difference weights - a weight to be applied to each target in the 
+#    difference weights - a weight to be applied to each target in the
 #       difference function so that it hits its goal
 #     dw <- ifelse(targets!=0, goal / targets, 1)
 #     as.vector(dw)
 # }
 
 
+def get_diff_weights(targets, goal=100):
+    """
+    difference weights - a weight to be applied to each target in the
+      difference function so that it hits its goal
+      set the weight to 1 if the target value is zero
 
+    do this in a vectorized way
+    """
+
+    # avoid divide by zero or other problems
+
+    # numerator = np.full(targets.shape, goal)
+    # with np.errstate(divide='ignore'):
+    #     dw = numerator / targets
+    #     dw[targets == 0] = 1
+
+    goalmat = np.full(targets.shape, goal)
+    with np.errstate(divide='ignore'):  # turn off divide-by-zero warning
+        diff_weights = np.where(targets != 0, goalmat / targets, 1)
+
+    return diff_weights.flatten(order='F')
 
 
 def get_delta(wh, beta, xmat):
-    # wh, beta, xmat
-    # returns vector of constants, 1 per household
-    # h: number of households
-    # k: number of characteristics each household has
-    # s: number of states or geographic areas
-    # wh: 1 x h vector of weights for each household
-    # beta: s x k matrix of poisson model coefficients
-    #    (same for all households)
-    # xmat: h x k matrix of characteristics for each household
+    """
+    Get vector of constants, 1 per household.
 
-    # See (Khitatrakun, Mermin, Francis, 2016, p.5)
+    Definitions:
+    h: number of households
+    k: number of characteristics each household has
+    s: number of states or geographic areas
 
-    # Note: we cannot let beta %*% xmat get too large!! or exp will be Inf and
-    # problem will bomb. It will get large when a beta element times an
-    # xmat element is large, so either beta or xmat can be the problem.
+    Keyword arguments:
+    wh: 1 x h vector of weights for each household
+    beta: s x k matrix of poisson model coefficients
+        (same for all households)
+    xmat: h x k matrix of characteristics for each household
+
+    See (Khitatrakun, Mermin, Francis, 2016, p.5)
+
+    Note: we cannot let beta %*% xmat get too large!! or exp will be Inf and
+    problem will bomb. It will get large when a beta element times an
+    xmat element is large, so either beta or xmat can be the problem.
+    """
     beta_x = np.exp(np.dot(beta, xmat.T))
 
     delta = np.log(wh / beta_x.sum(axis=0))  # axis=0 gives colsums
@@ -101,7 +126,7 @@ xmat.reshape(6)
 xmat.reshape(xmat.size)
 xmat.reshape(xmat.size, order='F')
 
-# %% data for simple r problem -- geoweight example
+# %% define data for simple r problem -- geoweight example
 #  see cell further below for expected results
 h = 10
 s = 3
@@ -124,6 +149,12 @@ targets = np.array([[55.50609, 73.20929],
 
 beta0 = np.zeros([s, k])
 
+# for test purpose, also define a matrix that has some zeroes
+targetsz = np.array([[55.50609, 73.20929],
+                     [0, 80.59494],
+                     [56.79071, 0]])
+
+
 # %% use data from r problem
 wh
 xmat
@@ -131,17 +162,18 @@ xmat.T
 targets
 beta0
 
-np.dot(beta0, xmat.T)
-np.exp(np.dot(beta0, xmat.T))
+dw = get_diff_weights(targets)
+dw
+# get_diff_weights(targetsz)  # test the case where we have zeroes
 
 np.sum(xmat, axis=0)  # colsums
 xmat.sum(axis=0)
 np.sum(xmat, axis=1)  # rowsums
-np.log(wh)
 
 tmp = get_delta(wh, beta0, xmat)
 tmp
 tmp.shape  # s x h
+
 
 # %% results from r problem
 # dw from get_dweights should be:
