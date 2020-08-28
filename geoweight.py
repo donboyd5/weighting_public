@@ -148,6 +148,27 @@ def get_weights(beta, delta, xmat):
 #     t(whs) %*% xmat
 # }
 
+# targets_vec <- function(betavec, wh, xmat, s) {
+#     # return a vector of calculated targets and corresponding values 
+# calculated given a beta vector, household weights, and x matrix
+#     calc_targets <- targets_mat(betavec, wh, xmat, s)
+#     as.vector(calc_targets)
+# }
+
+# diff_vec <- function(betavec, wh, xmat, targets, dweights = rep(1, length(targets))) {
+#     # return a vector of length s*k of differences between desired targets and calculated targets given a beta vector, household weights, and x
+#     # matrix of k characteristics
+#     calc_targets <- targets_mat(betavec, wh, xmat, nrow(targets))
+#     d <- targets - calc_targets  # these are both s x k matrices
+#     as.vector(d) * as.vector(dweights)
+# }
+
+# sse <- function(betavec, wh, xmat, targets, dweights = NULL) {
+#     # return a single value - sse (sum of squared errors)
+#     sum(diff_vec(betavec, wh, xmat, targets, dweights)^2)
+# }
+
+
 
 # %% experiment
 
