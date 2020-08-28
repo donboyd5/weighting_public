@@ -15,36 +15,6 @@ from numpy.random import rand
 
 # %% functions
 
-# get_dweights <- function(targets, goal = 100) {
-#    difference weights - a weight to be applied to each target in the
-#       difference function so that it hits its goal
-#     dw <- ifelse(targets!=0, goal / targets, 1)
-#     as.vector(dw)
-# }
-
-
-def get_diff_weights(targets, goal=100):
-    """
-    difference weights - a weight to be applied to each target in the
-      difference function so that it hits its goal
-      set the weight to 1 if the target value is zero
-
-    do this in a vectorized way
-    """
-
-    # avoid divide by zero or other problems
-
-    # numerator = np.full(targets.shape, goal)
-    # with np.errstate(divide='ignore'):
-    #     dw = numerator / targets
-    #     dw[targets == 0] = 1
-
-    goalmat = np.full(targets.shape, goal)
-    with np.errstate(divide='ignore'):  # turn off divide-by-zero warning
-        diff_weights = np.where(targets != 0, goalmat / targets, 1)
-
-    return diff_weights.flatten(order='F')
-
 
 def get_delta(wh, beta, xmat):
     """
@@ -72,29 +42,82 @@ def get_delta(wh, beta, xmat):
     delta = np.log(wh / beta_x.sum(axis=0))  # axis=0 gives colsums
     return delta
 
-# get_weights <- function(beta, delta, xmat) {
-#    calculate state-specific weights for each household that will add to
-#      their return an h x s matrix with weight for each state s for each
-#    household h for each household the state weights will add to the
-#      total weight
 
-#    beta: s x k matrix of poisson model coefficients that apply to all
-#      households
-#    delta: h-length vector of household-specific constants
-#    xmat: h x k matrix of characteristics for each household
+def get_diff_weights(targets, goal=100):
+    """
+    difference weights - a weight to be applied to each target in the
+      difference function so that it hits its goal
+      set the weight to 1 if the target value is zero
 
-#     # See (Khitatrakun, Mermin, Francis, 2016, p.4)
+    do this in a vectorized way
+    """
 
-#     # calc s x h matrix: each row has the sum over k of
-#  beta[s_i, k] * x[h_j, k] for each household where s_i is the
-#  state in row i each column is
-#     # a specific household
-#     beta_x <- beta %*% t(xmat)  #
-#     # add the delta vector of household constants to every row
-#  of beta_x and transpose
-#     beta_xd <- apply(beta_x, 1, function(mat) mat + delta)
-#     exp(beta_xd)  # exponentiate to calculate the weights
-# }
+    # avoid divide by zero or other problems
+
+    # numerator = np.full(targets.shape, goal)
+    # with np.errstate(divide='ignore'):
+    #     dw = numerator / targets
+    #     dw[targets == 0] = 1
+
+    goalmat = np.full(targets.shape, goal)
+    with np.errstate(divide='ignore'):  # turn off divide-by-zero warning
+        diff_weights = np.where(targets != 0, goalmat / targets, 1)
+
+    return diff_weights
+
+
+def get_diff_weights_vec(targets, goal=100):
+    """
+    difference weights - a weight to be applied to each target in the
+      difference function so that it hits its goal
+      set the weight to 1 if the target value is zero
+
+    do this in a vectorized way
+    """
+
+    # avoid divide by zero or other problems
+
+    # numerator = np.full(targets.shape, goal)
+    # with np.errstate(divide='ignore'):
+    #     dw = numerator / targets
+    #     dw[targets == 0] = 1
+
+    goalmat = np.full(targets.shape, goal)
+    with np.errstate(divide='ignore'):  # turn off divide-by-zero warning
+        diff_weights = np.where(targets != 0, goalmat / targets, 1)
+
+    return diff_weights.flatten(order='F')
+
+
+def get_targets(beta, wh, xmat):
+    """
+    Calculate matrix of target values by state and characteristic.
+
+    Definitions:
+    h: number of households
+    k: number of characteristics each household has
+    s: number of states or geographic areas
+
+    Parameters
+    ----------
+    beta : matrix
+        s x k matrix of coefficients for the poisson function that generates
+        state weights.
+    wh : vector
+         1 x h vector of weights for each household.
+    xmat : matrix
+        h x k matrix of characteristics (data) for households.
+
+    Returns
+    -------
+    targets_mat : matrix
+        s x k matrix of target values.
+
+    """
+    delta = get_delta(wh, beta, xmat)
+    whs = get_weights(beta, delta, xmat)
+    targets_mat = np.dot(whs.T, xmat)
+    return targets_mat
 
 
 def get_weights(beta, delta, xmat):
@@ -139,6 +162,7 @@ def get_weights(beta, delta, xmat):
 
     return weights
 
+
 # targets_mat <- function(betavec, wh, xmat, s) {
 #    return an s x k matrix of calculated targets, given a beta vector,
 #      household weights, and x matrix
@@ -148,8 +172,9 @@ def get_weights(beta, delta, xmat):
 #     t(whs) %*% xmat
 # }
 
+
 # targets_vec <- function(betavec, wh, xmat, s) {
-#     # return a vector of calculated targets and corresponding values 
+#     # return a vector of calculated targets and corresponding values
 # calculated given a beta vector, household weights, and x matrix
 #     calc_targets <- targets_mat(betavec, wh, xmat, s)
 #     as.vector(calc_targets)
@@ -163,11 +188,46 @@ def get_weights(beta, delta, xmat):
 #     as.vector(d) * as.vector(dweights)
 # }
 
+
+def targets_diff(beta_obj, wh, xmat, targets, diff_weights):
+    '''
+    Calculate difference between calculated targets and desired targets.
+
+    Parameters
+    ----------
+    beta_obj: vector or matrix
+        if vector it will have length s x k and we will create s x k matrix
+        if matrix it will be dimension s x k
+        s x k matrix of coefficients for the poisson function that generates
+        state weights.
+    wh: array-like
+        DESCRIPTION.
+    xmat: TYPE
+        DESCRIPTION.
+    targets: TYPE
+        DESCRIPTION.
+    diff_weights: TYPE
+        DESCRIPTION.
+
+    Returns
+    -------
+    matrix of dimension s x k.
+
+    '''
+    if beta_obj.ndim == 1:
+        beta = beta_obj.reshape(targets.shape)
+    elif beta_obj.ndim == 2:
+        beta = beta_obj
+    targets_calc = get_targets(beta, wh, xmat)
+    diffs = targets_calc - targets
+    diffs = diffs * diff_weights
+
+    return diffs
+
 # sse <- function(betavec, wh, xmat, targets, dweights = NULL) {
 #     # return a single value - sse (sum of squared errors)
 #     sum(diff_vec(betavec, wh, xmat, targets, dweights)^2)
 # }
-
 
 
 # %% experiment
@@ -277,7 +337,9 @@ np.sum(xmat, axis=1)  # rowsums
 
 dw = get_diff_weights(targets)
 dw
+targets * dw
 # get_diff_weights(targetsz)  # test the case where we have zeroes
+targetsz * get_diff_weights(targetsz)
 
 beta0 = np.zeros([s, k])
 beta0
@@ -287,6 +349,18 @@ delta0
 
 whs0 = get_weights(beta0, delta0, xmat)
 whs0
+
+targs0 = get_targets(beta0, wh, xmat)
+targs0
+
+targs0 - targets
+
+# we can pass either a matrix or an array to targets_diff
+targets_diff(beta0, wh, xmat, targets, diff_weights=dw)
+targets_diff(beta0.flatten(), wh, xmat, targets, diff_weights=dw)
+
+# bv2 = np.array(np.arange(1, 13))
+# bv2
 
 
 # %% results from r problem - for checking against
@@ -311,6 +385,12 @@ whs0
 #  [8,] 11.67245 11.67245 11.67245
 #  [9,] 15.18365 15.18365 15.18365
 # [10,] 15.97258 15.97258 15.97258
+
+# targets when beta is 0
+#          [,1]     [,2]
+# [1,] 57.81941 76.40666
+# [2,] 57.81941 76.40666
+# [3,] 57.81941 76.40666
 
 # sse_weighted 5.441764e-21
 
