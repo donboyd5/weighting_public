@@ -15,7 +15,7 @@ import make_test_problems as mtp
 mtp.Problem.help()
 
 p = mtp.Problem(h=100, s=5, k=2)
-# p = mtp.Problem(h=10000, s=20, k=10)  # moderate-sized problem, < 1 min
+# p = mtp.Problem(h=20000, s=30, k=10)  # moderate-sized problem, < 1 min
 
 # I don't think our problems for a single AGI range will get bigger
 # than the one below:
