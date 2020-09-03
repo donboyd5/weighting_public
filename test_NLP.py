@@ -6,21 +6,37 @@ Created on Sat Aug 29 09:35:09 2020
 """
 
 # %% imports
+
+from timeit import default_timer as timer
 import numpy as np
-import make_test_problems as mtp
+from numpy import cosh, zeros_like, mgrid, zeros
+from numpy.random import seed
+
 import scipy.optimize
 from scipy.optimize import least_squares
 from scipy.optimize import lsq_linear
-from timeit import default_timer as timer
-
 from scipy.optimize import newton_krylov
-from numpy import cosh, zeros_like, mgrid, zeros
+from scipy.sparse import rand
+
+from scipy.optimize import minimize
+from scipy.optimize import Bounds
+from scipy.optimize import LinearConstraint
+from scipy.optimize import NonlinearConstraint
+from scipy.sparse import csc_matrix
+from scipy.sparse.linalg import LinearOperator
+from scipy.optimize import BFGS
+
+# conda install -c conda-forge scikit-sparse
+# import scikit-sparse
 
 import matplotlib.pyplot as plt
+from matplotlib import colors
+from matplotlib.ticker import PercentFormatter
 
-from numpy.random import seed
+import make_test_problems as mtp
 
-# %% test NLP
+
+# %% functions
 
 
 def targs(x, wh, xmat):
@@ -71,13 +87,14 @@ def jacfn(x, wh, xmat, targets, dw):
     jac = j2.T
     return jac
 
-jac2 = jacfn(x0, p.wh, p.xmat, targets, dwv)
 
 def jacfn2(x, wh, xmat, targets, dw):
     jac = jac2
     return jac
 
 
+# %% analysis
+jac2 = jacfn(x0, p.wh, p.xmat, targets, dwv)
 jacfn(xr, p.wh, p.xmat, targets, dwv)
 
 diffs2(x0, p.wh, p.xmat, targets, dwv)
@@ -197,8 +214,7 @@ np.cos(x) + x[::-1]
 
 # %% large-scale least squares
 # https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.lsq_linear.html
-from scipy.sparse import rand
-from scipy.optimize import lsq_linear
+
 
 np.random.seed(0)
 
@@ -238,13 +254,13 @@ end - start
 
 p = mtp.Problem(h=10, s=1, k=2)
 p = mtp.Problem(h=100, s=1, k=4)
-p = mtp.Problem(h=3000, s=1, k=5)
+p = mtp.Problem(h=3000, s=1, k=10)
 p = mtp.Problem(h=30000, s=1, k=20)
 p = mtp.Problem(h=300000, s=1, k=30)
 p = mtp.Problem(h=500000, s=1, k=50)
 
 seed(1)
-r = np.random.randn(p.targets.size) / 100  # random normal
+r = np.random.randn(p.targets.size) / 1000  # random normal
 targets = (p.targets * (1 + r)).flatten()
 diff_weights = np.where(targets != 0, 100 / targets, 1)
 b = targets * diff_weights
@@ -258,20 +274,39 @@ As = scipy.sparse.coo_matrix(A)
 
 # lb = np.zeros(p.h)
 # ub = lb + 10
-lb = np.full(p.h, 0.1)
-ub = np.full(p.h, 10)
+lb = np.full(p.h, 0.5)
+ub = np.full(p.h, 1.5)
+
+lb = np.full(p.h, 0)
+ub = np.full(p.h, 100)
+
+p.h
+p.k
 
 start = timer()
 res = lsq_linear(As, b, bounds=(lb, ub),
                  method='trf',
-                 tol=1e-3,
+                 tol=1e-5,
                  lsmr_tol='auto',
                  max_iter=100, verbose=2)
 end = timer()
-end - start
 
-tmp = end - start
-tmp
+print(end - start)
+np.abs(res.fun).max()
+res.fun
+q = [0, .01, .05, .1, .25, .5, .75, .9, .95, .99, 1]
+np.quantile(res.x, q)
+
+Atraw = np.multiply(p.wh.reshape(p.h, 1), p.xmat)
+sdiff = (np.dot(np.full(p.h, 1), Atraw) - targets) / targets * 100  # compare res.fun
+sdiff
+
+np.square(sdiff).sum()
+np.square(res.fun).sum()
+
+n, bins, patches = plt.hist(res.x, 500, density=True, facecolor='g', alpha=0.75)
+
+
 
 res.x
 res.cost
@@ -282,7 +317,7 @@ np.abs(pdiff)
 np.abs(pdiff).max()
 
 res.x
-Atraw = np.multiply(p.wh.reshape(p.h, 1), p.xmat)
+
 targets_calc = np.dot(res.x, Atraw)
 targets
 targets_calc
@@ -328,17 +363,9 @@ plt.show()
 
 # %% large-scale with constraints - setup
 # see https://docs.scipy.org/doc/scipy/reference/tutorial/optimize.html#constrained-minimization-of-multivariate-scalar-functions-minimize
-from scipy.optimize import Bounds
-from scipy.optimize import LinearConstraint
-from scipy.optimize import NonlinearConstraint
-from scipy.sparse import csc_matrix
-from scipy.sparse.linalg import LinearOperator
-from scipy.optimize import BFGS
-
 
 def cons_f(x):
     return [x[0]**2 + x[1], x[0]**2 - x[1]]
-
 
 def cons_J(x):
     return [[2*x[0], 1], [2*x[0], -1]]
@@ -351,15 +378,11 @@ def cons_H(x, v):
 def cons_H_sparse(x, v):
     return v[0]*csc_matrix([[2, 0], [0, 0]]) + v[1]*csc_matrix([[2, 0], [0, 0]])
 
-
 def cons_H_linear_operator(x, v):
     def matvec(p):
         return np.array([p[0]*2*(v[0]+v[1]), 0])
     return LinearOperator((2, 2), matvec=matvec)
 
-
-bounds = Bounds([0, -0.5], [1.0, 2.0])
-linear_constraint = LinearConstraint([[1, 2], [2, 1]], [-np.inf, 1], [1, 1])
 
 # nonlinear_constraint = NonlinearConstraint(cons_f, -np.inf, 1, jac=cons_J, hess=cons_H)
 
@@ -373,8 +396,7 @@ linear_constraint = LinearConstraint([[1, 2], [2, 1]], [-np.inf, 1], [1, 1])
 #nonlinear_constraint = NonlinearConstraint(cons_f, -np.inf, 1, jac=cons_J, hess='2-point')
 nonlinear_constraint = NonlinearConstraint(cons_f, -np.inf, 1, jac='2-point', hess=BFGS())
 
-# %% NLP solve
-from scipy.optimize import minimize
+# %% rosenbrock
 
 def rosen(x):
     """The Rosenbrock function"""
@@ -411,6 +433,10 @@ def rosen_hess(x):
     diagonal[1:-1] = 202 + 1200*x[1:-1]**2 - 400*x[2:]
     H = H + np.diag(diagonal)
     return H
+
+res3 = minimize(rosen, x0, method='Newton-CG',
+               jac=rosen_der, hess=rosen_hess,
+               options={'xtol': 1e-8, 'disp': True})
 
 res3 = minimize(rosen, x0, method='Newton-CG',
                jac=rosen_der, hess=rosen_hess,
@@ -480,7 +506,304 @@ res = minimize(rosen, x0, method='trust-constr', jac=rosen_der, hess=rosen_hess,
                constraints=[linear_constraint, nonlinear_constraint],
                options={'verbose': 1}, bounds=bounds)
 
-
-
 print(res.x)
+
+
+# %% large scale NLP with constraints djb
+
+# warm up - simple
+def f(x):   # The rosenbrock function
+    return .5*(1 - x[0])**2 + (x[1] - x[0]**2)**2
+
+# no constraints, no jacobian
+
+
+minimize(f, [2, -1], method="CG")
+
+# no constraints, but with jacobian
+
+
+def jacobian(x):
+    return np.array((-2*.5*(1 - x[0]) - 4*x[0]*(x[1] - x[0]**2),
+                     2*(x[1] - x[0]**2)))
+
+
+minimize(f, [2, 1], method="CG", jac=jacobian)
+
+
+# no constraints, jacobian and hessian and different method
+
+
+def hessian(x): # Computed with sympy
+    return np.array(((1 - 4*x[1] + 12*x[0]**2,
+                      -4*x[0]), (-4*x[0], 2)))
+
+minimize(f, [2, -1], method="Newton-CG", jac=jacobian, hess=hessian)
+
+minimize(f, [2, -1], method="L-BFGS-B", jac=jacobian)
+
+
+# %% new problem, bounds and constraints
+
+# this is a lasso problem, maybe faster ways to solver
+
+def f(x):
+    return np.sqrt((x[0] - 3)**2 + (x[1] - 2)**2)
+
+
+minimize(f, np.array([0, 0]), bounds=((-1.5, 1.5), (-1.5, 1.5)))
+
+
+def constraint(x):
+    return np.atleast_1d(1.5 - np.sum(np.abs(x)))
+
+
+x0 = np.array([0, 0])
+constraint(x0)
+constraint([1, -1])
+minimize(f, x0, constraints={"fun": constraint, "type": "ineq"})
+
+
+# %% test for real - setup
+
+
+def f(x):
+    # x is an array
+    diffs = (x - 1)
+    obj = np.square(diffs).sum()
+    return (obj)
+
+
+def jac(x):
+    # jacobian (gradiant) of objective function
+    return 2 * x - 2
+
+
+def hess(x):
+    # hessian of objective function
+    return hmat
+
+def hess_sparse(x):
+    # hessian of objective function
+    return hmat_sparse
+
+
+hmat = np.identity(x0.size) * 2
+
+hmat_sparse = scipy.sparse.identity(x0.size) * 2
+# hmat_sparse.toarray()
+
+# %% test for real - implementation
+
+# methods available for minimization, POTENTIALLY w/bounds and constraints:
+#  SLSQP -- default w/constraints and bounds (option verbose not available)
+#  trust-constr -- handles constraints and bounds, option verbose available
+#  trust-exact -- ??handles constraints & bounds, requires jacobian & hessian
+#  trust-krylov -- ??handles constraints & bounds, requires jacobian & hessian
+
+# other:
+#  BFGS -- cannot handle constraints or bounds
+#  CG -- cannot handle constraints or bounds
+#  COBYLA -- cannot handle bounds (POSSIBLE option nonetheless)
+#  dogleg -- cannot handle constraints or bounds, requires jacobian
+#  L-BFGS-B -- cannot handle constraints (but handles bounds)
+#  Nelder-Mead -- cannot handle constraints or bounds
+#  Powell -- cannot handle constraints
+#  TNC -- cannot handle constraints
+#  trust-ncg --cannot handle constraints or bounds, requires jacobian
+
+# Constraints for COBYLA, SLSQP are defined as a list of dictionaries. Each
+#  dictionary with fields:
+# type str Constraint type: ‘eq’ for equality, ‘ineq’ for inequality.
+# fun callable The function defining the constraint.
+# jac callable, optional The Jacobian of fun (only for SLSQP).
+# argssequence, optional
+# Extra arguments to be passed to the function and Jacobian.
+
+
+p = mtp.Problem(h=100, s=1, k=5)
+p = mtp.Problem(h=1000, s=1, k=10)
+p = mtp.Problem(h=10000, s=1, k=10)
+p.wh
+p.xmat
+p.targets
+
+p.wh.shape
+p.xmat.shape
+
+At = p.xmat * p.wh[:, None]  # elementwise multiplication of matrix and vector
+# A = np.multiply(p.wh.reshape(-1, 1), p.xmat)  # also works
+A = At.T
+
+x0 = np.ones(p.wh.size)
+np.dot(A, x0)
+p.targets
+
+# add some noise to the targets so we have to work for a solution
+r = np.random.randn(p.targets.size) / 100  # random normal
+targets = (p.targets * (1 + r)).flatten()
+
+# set up the problem
+lb = 0
+ub = 10
+bounds = Bounds(lb, ub)
+
+# constraints setup for SLSQP
+
+
+def cons_sqp(x):
+    return A.dot(x) - targets
+
+
+# cons_sqp(x0)
+
+
+#  constraints input for SLSQP:
+# cons = ({'type': 'eq', 'fun': cons_sqp})
+
+# ineq_cons = {'type': 'ineq',
+#              'fun' : lambda x: np.array([1 - x[0] - 2*x[1],
+#                                          1 - x[0]**2 - x[1],
+#                                          1 - x[0]**2 + x[1]]),
+#              'jac' : lambda x: np.array([[-1.0, -2.0],
+#                                          [-2*x[0], -1.0],
+#                                          [-2*x[0], 1.0]])}
+
+
+# constraint setup for trust-constr
+lc = LinearConstraint(A, targets * .98, targets * 1.02)
+lc = LinearConstraint(A, targets, targets)
+lc
+# dir(lc)
+lc.A
+lc.lb
+lc.ub
+lc.A.shape
+
+p.h
+p.k
+
+# SLSQP - only good for smaller problems
+start = timer()
+resc1 = minimize(f, x0, jac=jac,
+                 bounds=bounds, constraints=cons,
+                 method='SLSQP')
+end = timer()
+end - start
+resc1.x
+resc1.message
+np.dot(A, resc1.x)
+targets
+np.dot(A, resc1.x) / targets * 100 - 100
+
+# trust-constr -- better for larger problems
+start = timer()
+resc2 = minimize(f, x0, jac=jac,
+                 hess=hess_sparse,  # hess, hess_sparse,
+                 bounds=bounds, constraints=lc,
+                 method='trust-constr',
+                 options={'verbose': 2, 'maxiter': 20, 'disp': True})
+end = timer()
+end - start
+# resc2.x
+resc2.message
+np.dot(A, resc2.x)
+targets
+diffs = np.dot(A, resc2.x) - targets
+np.abs(diffs).sum()
+np.dot(A, resc2.x) / targets * 100 - 100
+
+start = timer()
+resc3 = minimize(f, x0, jac=jac,  # hess='2-point',
+                 bounds=bounds, constraints=lc,
+                 method='trust-constr',
+                 options={'verbose': 2, 'maxiter': 5, 'disp': True})
+end = timer()
+end - start
+
+f(resc1.x)
+f(resc2.x)
+f(resc3.x)
+resc1.message
+resc2.message
+
+np.dot(A, resc1.x)
+targets
+
+
+# use min <= calc <= max for constraints
+# where we have a matrix that is post multiplied by X for calc
+# and vectors (arrays) for min max
+
+# djb come back here
+
+linear_constraint = LinearConstraint([[1, 2], [2, 1]], [-np.inf, 1], [1, 1])
+linear_constraint = LinearConstraint([[1, 2], [2, 1]], [-np.inf, 1], [1, 1])
+
+minimize(f, x0, constraints={"fun": constraint, "type": "ineq"})
+
+bounds = Bounds([0, -0.5], [1.0, 2.0])
+linear_constraint = LinearConstraint([[1, 2], [2, 1]], [-np.inf, 1], [1, 1])
+
+x0 = np.array([0.5, 0])
+res = minimize(rosen, x0, method='trust-constr', jac=rosen_der, hess=rosen_hess,
+               constraints=[linear_constraint, nonlinear_constraint],
+               options={'verbose': 1}, bounds=bounds)
+
+
+
+
+
+
+
+
+f(np.array([0, 1, 2, 3]))
+
+x0 = np.array([3, 4, 5])
+f(x0)
+jac(x0)
+minimize(f, x0)
+
+
+lb = 1.5
+ub = 2
+bounds = Bounds(lb, ub)
+bounds = Bounds([0, 2, 0], [0.5, np.Inf, 7])
+res = minimize(f, x0, bounds=bounds)
+res
+
+xmat = np.array([10, 10, 10,
+                20, 20, 20]).reshape(3, 2)
+xmat
+xmat.T
+np.dot(xmat.T, x0)
+np.dot(xmat.T, res.x)
+
+
+lc = LinearConstraint(xmat.T, [46, 64], [50, 68])
+lc
+dir(lc)
+lc.A
+lc.lb
+lc.ub
+
+
+resc = minimize(f, x0, bounds=bounds, constraints=lc,
+                method='SLSQP', options={'verbose': 2})
+
+resc = minimize(f, x0, jac=jac, bounds=bounds, constraints=lc,
+                method='SLSQP', options={'verbose': 2})
+
+
+resc
+np.dot(xmat.T, x0)
+np.dot(xmat.T, resc.x)
+lc.lb
+lc.ub
+bounds.lb
+bounds.ub
+resc.x
+
+
+# something bigger
 
