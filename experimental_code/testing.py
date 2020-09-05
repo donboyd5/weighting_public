@@ -7,8 +7,8 @@ Created on Sat Aug 29 05:16:40 2020
 
 # %% imports
 import numpy as np
-import geoweight as gw
-import make_test_problems as mtp
+import microweight.geoweight as gw
+import microweight.make_test_problems as mtp
 
 
 # %% test problems of arbitrary size
@@ -30,10 +30,10 @@ g1 = gw.Geoweight(p.wh, p.xmat, p.targets)
 # look at the inputs
 g1.wh
 g1.xmat
-g1.targets
+g1.geotargets
 
 # solve for state weights
-g1.geosolve()
+g1.geoweight()
 
 # examine results
 g1.elapsed_minutes

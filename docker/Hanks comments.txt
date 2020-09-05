@@ -1,0 +1,84 @@
+https://realpython.com/python-versions-docker/
+
+docker images -f “dangling=true” -q
+docker rmi $(docker images --filter “dangling=true” -q --no-trunc)
+
+Approaches:
+
+https://docs.docker.com/storage/volumes/
+https://blog.softwaremill.com/editing-files-in-a-docker-container-f36d76b9613c
+
+https://blog.container-solutions.com/understanding-volumes-docker#:~:text=In%20order%20to%20be%20able,files%20on%20the%20host%20filesystem.
+When we start a container, Docker takes the read-only image and adds a read-write layer on top. If the running container modifies an existing file, the file is copied out of the underlying read-only layer and into the top-most read-write layer where the changes are applied. The version in the read-write layer hides the underlying file, but does not destroy it -- it still exists in the underlying layer. When a Docker container is deleted, relaunching the image will start a fresh container without any of the changes made in the previously running container -- those changes are lost. Docker calls this combination of read-only layers with a read-write layer on top a Union File System.
+
+In order to be able to save (persist) data and also to share data between containers, Docker came up with the concept of volumes. Quite simply, volumes are directories (or files) that are outside of the default Union File System and exist as normal directories and files on the host filesystem.
+
+There are several ways to initialise volumes, with some subtle differences that are important to understand. The most direct way is declare a volume at run-time with the -v flag:
+
+docker run -it --name vol-test -h CONTAINER -v /data debian /bin/bash
+
+https://realpython.com/python-versions-docker/
+
+https://www.digitalocean.com/community/tutorials/how-to-share-data-between-the-docker-container-and-the-host
+
+https://www.freecodecamp.org/news/where-are-docker-images-stored-docker-container-paths-explained/
+
+https://nickjanetakis.com/blog/setting-up-a-python-development-environment-with-and-without-docker
+
+https://medium.com/packagr/installing-private-python-packages-in-a-docker-images-fb1872409ed0
+
+djb:
+
+Hank suggested:
+docker run -v ./:/ -it ipopt_python:latest
+Gives:
+  Error response from daemon: invalid volume specification: '.:/': invalid mount config for type "volume": invalid specification: destination can't be '/'.
+
+
+docker run -v ./ -it ipopt_python:latest
+Error response from daemon: OCI runtime create failed: container_linux.go:349: starting container process caused "process_linux.go:449: container init caused \"open /dev/ptmx: no such file or directory\"": unknown.
+
+
+docker run -v ./: -it ipopt_python:latest
+Gives:
+   Error response from daemon: invalid volume specification: '.:'.
+
+docker run -v .:/ -it ipopt_python:latest
+Gives: 
+  Error response from daemon: invalid volume specification: '.:/': invalid mount config for type "volume": invalid specification: destination can't be '/'.
+
+
+
+
+Hank below here:
+
+Re mounting a volume: You can mount your local directory doing something like this:
+
+docker run -v ./:/ -it DONS_CONTAINER:latest
+
+Once you do that, you can read/write files like you're working locally, and the changes will be synced with the container.
+
+-----------------------------------------------------------------------------------------------------------------------------
+
+You should be able to just edit them like normal without going into the container.
+
+When I run the compute-studio server locally, I use docker with my directory as the volume. Once I do this, I can edit files in this volume from outside the container.
+
+In my dockerfile, I add the code to the container (link):
+
+ADD ./webapp /code/webapp/
+
+
+And then in my docker-compose file, I set the volume (link):
+
+- .:/code
+
+
+The normal docker command without compose then looks something like this:
+
+
+
+docker run -v .:/code -t web:latest python manage.py runserver
+
+
+

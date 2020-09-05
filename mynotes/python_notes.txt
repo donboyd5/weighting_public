@@ -1,0 +1,83 @@
+# conda
+## resources
+https://docs.conda.io/projects/conda/en/4.6.0/_downloads/52a95608c49671267e40c689e0bc00ca/conda-cheatsheet.pdf
+
+## useful commands
+conda info
+conda update conda
+conda env list
+conda create --clone <existing enf> --name <new env>
+conda list # within an environment
+
+# structuring python packages, modules, programs, etc.
+## resources
+https://dev.to/codemouse92/dead-simple-python-project-structure-and-imports-38c6#:~:text=Organize%20your%20modules%20into%20packages,root%20of%20your%20project's%20repository.
+
+## general structure notes
+  every Python code file (.py) is a module
+  organize your modules into packages
+  Your project should generally consist of one top-level package, usually containing sub-packages.
+  That top-level package usually shares the name of your project, and exists as a directory in the root of your project's repository.
+
+## __init__.py
+before python 3.3 every package needed a special __init__.py file even if empty, so that modules could be imported from it
+now it is only needed if it includes initialization statements
+
+## documentation
+https://docs.python-guide.org/writing/documentation/
+https://realpython.com/documenting-python-code/
+https://www.programiz.com/python-programming/docstrings
+
+Example of how to see a module's (or function's, etc.) documentation:
+import pickle
+print(pickle.__doc__)
+
+import microweight.microweight
+print(microweight.microweight.__doc__)
+
+
+
+### docstrings
+https://www.python.org/dev/peps/pep-0257/
+
+A docstring is a string literal that occurs as the first statement in a module, function, class, or method definition. Such a docstring becomes the __doc__ special attribute of that object.
+
+String literals occurring immediately after a simple assignment at the top level of a module, class, or __init__ method are called "attribute docstrings".
+String literals occurring immediately after another docstring are called "additional docstrings".
+
+For consistency, always use """triple double quotes""" around docstrings. Use r"""raw triple double quotes""" if you use any backslashes in your docstrings. For Unicode docstrings, use u"""Unicode triple-quoted strings""".
+
+#### One-line docstrings
+The docstring is a phrase ending in a period. It prescribes the function or method's effect as a command ("Do this", "Return that").
+Example: 
+	def function(a, b):
+	    """Do X and return a list."""
+
+#### Multi-line docstrings
+Multi-line docstrings consist of a summary line just like a one-line docstring, followed by a blank line, followed by a more elaborate description. The summary line may be used by automatic indexing tools; it is important that it fits on one line and is separated from the rest of the docstring by a blank line. 
+
+Example:
+	def complex(real=0.0, imag=0.0):
+	    """
+	    Form a complex number.
+
+	    Keyword arguments:
+	    real -- the real part (default 0.0)
+	    imag -- the imaginary part (default 0.0)
+	    """
+	    if imag == 0.0 and real == 0.0:
+	        return complex_zero
+	    ...
+
+
+# python source files
+## header information
+# classes
+?
+
+# spyder
+doing the following is much faster than working through anaconda navigator:
+	open anaconda powershell
+	cd c:\programs_python\weighting  # or other desired project folder
+	conda activate analysis  # or whatever other env is desired
+	spyder  # then work within spyder

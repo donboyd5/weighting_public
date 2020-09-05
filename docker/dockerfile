@@ -1,0 +1,59 @@
+# Notes 9/2/2020
+# Steps:
+#   1. open Windows Powershell (as admin??)
+#   2. cd to the directory that this file is located in, currently:
+#        C:\programs_python\weighting\docker
+#   3. run the following command:
+#        docker build -t ipopt_python .
+#          or
+#        docker build --no-cache -t ipopt_python .
+#   4. after the build, run:
+#        docker run ipopt_python:latest
+# 
+#  docker builder prune --all
+
+# Notes and changes:
+# 1. The initial run generated this warning:
+#    debconf: delaying package configuration, since apt-utils is not installed
+#      however, it must have installed apt-utils as this did not occur on the second run
+# 2. I have replaced empty lines after RUN below with commented lines as emtpty continuation lines may
+#      be an error in future docker releases
+# 3. I got this error:
+#    COPY failed: stat /var/lib/docker/tmp/docker-builder539867021/coinhsl-2019.05.21: no such file or directory
+#    I commented it out and commented out the following 2 lines in get_ipopt.sh
+#       mv ../../coinhsl-2019.05.21 ThirdParty/coinhsl
+#       cd ../coinhsl && ./configure
+
+# My HSL routines are in this directory:
+#   C:\Users\donbo\Dropbox (Personal)\Software\HSL subroutines
+
+
+FROM python:3
+
+RUN echo "$USER ALL = NOPASSWD: ALL" >> /etc/sudoers && \
+#  
+    apt-get update && apt-get install -y \
+        gcc g++ gfortran git patch wget pkg-config liblapack-dev libmetis-dev
+# 
+# HSL_DIR=coinhsl-2015.06.23
+# HSL_MAIN="C:/Users/donbo/Dropbox (Personal)/Software/Ipopt/Ipopt2017/HSL"
+# HSL_PATH=${HSL_MAIN}/${HSL_DIR}
+#
+# copy one of the HSL versions that is in the docker directory (unless I can
+# get the HSL_ variable approach to work
+# COPY coinhsl-2019.05.21 /tmp/coinhsl-2019.05.21/ 
+# COPY ${HSL_PATH} /tmp/${HSL_DIR}/
+# COPY coinhsl-2015.06.23 /tmp/coinhsl-2015.06.23/ 
+COPY coinhsl-2019.05.21 /tmp/coinhsl-2019.05.21/ 
+#
+ADD test_cyipopt.py /
+ADD get_ipopt.sh /tmp/
+ADD get_cyipopt.sh /tmp/
+RUN bash /tmp/get_ipopt.sh
+ENV IPOPTPATH /opt/ipopt
+ENV PKG_CONFIG_PATH $PKG_CONFIG_PATH:$IPOPTPATH/lib/pkgconfig
+ENV PATH $PATH:$IPOPTPATH/bin
+RUN bash --login /tmp/get_cyipopt.sh
+RUN rm /tmp/get_ipopt.sh /tmp/get_cyipopt.sh
+
+# CMD [ "python", "./test_cyipopt.py" ]

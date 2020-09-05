@@ -1,0 +1,74 @@
+
+https://github.com/matthias-k/cyipopt#example-installation-on-ubuntu-1804-with-custom-compiled-ipopt
+
+Open anaconda powershell as admin
+
+# steps
+conda clean --yes --all  #  Remove unused packages and caches
+conda update --yes conda
+conda update --yes --all
+conda info --envs
+conda create -n py_ipopt python=3.8.5
+conda activate py_ipopt
+conda install -c anaconda numpy cython future six setuptools mkl scipy
+# prepare cyipopt folder with:
+#   cyipopt source
+#   ipopt lib and include folders in the cyipot folder
+cd C:\cyipopt_dir\cyipopt
+python setup.py install
+
+
+conda install -c anaconda cython
+conda install -c anaconda numpy future six setuptools mkl 
+
+conda install -c anaconda cython numpy future six setuptools mkl 
+
+# other useful packages
+conda install spyder-kernels 
+
+# so here's a good list:
+conda install -c anaconda cython future mkl numpy setuptools six spyder
+
+# setting up spyder after install spyder-kernels
+python -c "import sys; print(sys.executable)"
+
+conda install -c PSLmodels taxcalc
+
+
+
+# 1. works but haven't been able to run it
+conda activate py_ipopt
+conda install -c conda-forge ipopt
+
+ipopt-3.11.1
+python-3.7.8
+?? looks like it will use python 3.7.9 with cpython
+
+# 2. try 2
+https://pypi.org/project/ipopt/
+
+anaconda powershell as admin
+create an environment py_ipopt -- I used python 3.7
+conda activate py_ipopt
+conda install -c conda-forge numpy cython future six setuptools mkl
+
+or maybe 
+anaconda powershell as admin
+create an environment py_ipopt # -- I used python 3.7
+conda activate py_ipopt
+conda install -c anaconda cython
+conda install -c anaconda numpy future six setuptools mkl
+
+Additionally, make sure you have a C compiler setup to compile Python C extensions, e.g. Visual C++. 
+Build tools for VS2019 https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2019 have
+been tested to work for conda Python 3.7 (see https://github.com/matthias-k/cyipopt/issues/52).
+
+Download and extract the cyipopt source code from Github or PyPi.
+
+Download a precompiled version of Ipopt that includes the DLL files from http://www.coin-or.org/download/binary/Ipopt/. Note that the current setup only supports Ipopt >= 3.10.1. It is advised to use the build 3.11.0 by downloading the Ipopt-3.11.0-Win32-Win64-dll.7z archive. After Ipopt is extracted, the lib and include folders should be in the root cyipopt directory, i.e. adjacent to the setup.py file. Alternatively, you can set the environment variable IPOPTWINDIR to point to the directory that contains the lib and include directories.
+
+python setup.py install
+
+
+
+
