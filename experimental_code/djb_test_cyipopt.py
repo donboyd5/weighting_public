@@ -134,6 +134,8 @@ def main():
                 cu=cu
                 )
 
+    x, info = nlp.solve(x0)
+
     #
     # Set solver options
     #

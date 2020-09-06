@@ -7,11 +7,21 @@ conda info
 conda update conda
 conda env list
 conda create --clone <existing enf> --name <new env>
-conda list # within an environment
+conda list # packages in the current environment
+
+To directly install a conda package from your local computer, run:
+
+conda install /package-path/package-filename.tar.bz2
+
+?? conda install C:\Users\donbo\anaconda3\pkgs\ipopt-3.11.1-2.tar.bz2
+
+## Anaconda location
+C:\Users\donbo\anaconda3
 
 # structuring python packages, modules, programs, etc.
 ## resources
 https://dev.to/codemouse92/dead-simple-python-project-structure-and-imports-38c6#:~:text=Organize%20your%20modules%20into%20packages,root%20of%20your%20project's%20repository.
+https://docs.python-guide.org/writing/structure/
 
 ## general structure notes
   every Python code file (.py) is a module
@@ -23,18 +33,22 @@ https://dev.to/codemouse92/dead-simple-python-project-structure-and-imports-38c6
 before python 3.3 every package needed a special __init__.py file even if empty, so that modules could be imported from it
 now it is only needed if it includes initialization statements
 
+## style guide
+https://www.python.org/dev/peps/pep-0008
+
 ## documentation
+### resources
 https://docs.python-guide.org/writing/documentation/
 https://realpython.com/documenting-python-code/
 https://www.programiz.com/python-programming/docstrings
 
+### show documentation
 Example of how to see a module's (or function's, etc.) documentation:
 import pickle
 print(pickle.__doc__)
 
 import microweight.microweight
 print(microweight.microweight.__doc__)
-
 
 
 ### docstrings
@@ -69,11 +83,17 @@ Example:
 	        return complex_zero
 	    ...
 
+### comments
+https://www.python.org/dev/peps/pep-0008/#comments
 
 # python source files
 ## header information
 # classes
-?
+https://python101.pythonlibrary.org/chapter11_classes.html
+
+the super function:
+https://www.educative.io/edpresso/what-is-super-in-python
+
 
 # spyder
 doing the following is much faster than working through anaconda navigator:
@@ -81,3 +101,144 @@ doing the following is much faster than working through anaconda navigator:
 	cd c:\programs_python\weighting  # or other desired project folder
 	conda activate analysis  # or whatever other env is desired
 	spyder  # then work within spyder
+
+# econometrics
+## resources
+https://quantecon.org/python-lectures/
+https://quantecon.org/quantecon-py/
+https://www.kevinsheppard.com/teaching/python/notes/
+https://www.kevinsheppard.com/files/teaching/python/notes/python_introduction_2019.pdf
+https://medium.com/@vince.shields913/econometrics-with-python-pt-2-608e67070364
+
+# My analysis setup
+In addition to tools installed with ipopt:
+conda install pandas scikit-learn matplotlib Seaborn Bokeh Plotly
+
+# installing and using ipopt in Windows
+## resources:
+https://coin-or.github.io/Ipopt/
+https://coin-or.github.io/Ipopt/OPTIONS.html
+https://github.com/matthias-k/cyipopt
+
+https://pythonhosted.org/ipopt/  # documentation
+https://pythonhosted.org/ipopt/tutorial.html
+https://pythonhosted.org/ipopt/reference.html#reference
+https://list.coin-or.org/pipermail/ipopt/2011-September/002601.html
+
+
+## preparation:
+
+	Review cyipopt site
+	Install VS2019 for Windows C compiler, download here; ensure that it is on the path
+	download cyipopt source code from Github using download code button
+	extract to a folder, called the cyipopt source code folder in this comment
+	download Ipopt Windows dll archive
+	unpack Ipopt archive and copy lib and include folders into the cyipopt source code folder, so that these folders are in the same folder as setup.py
+
+## open Anaconda powershell as admin, then:
+
+	conda clean --yes --all  #  Remove unused packages and caches
+	conda update --yes conda
+	conda update --yes --all
+	conda info --envs
+	conda create -n py_ipopt python=3.7  # py_ipopt or different user-chosen name 
+	conda activate py_ipopt  # py_ipopt or different user-chosen name 
+	conda install -c anaconda numpy cython future six setuptools mkl scipy
+
+## from within the Anaconda powershell cd to the cyipopt source folder:
+
+	cd C:\cyipopt_dir\cyipopt
+	python setup.py install
+
+## issues
+File "C:\Users\donbo\anaconda3\envs\analysis\lib\site-packages\numpy\lib\twodim_base.py", line 199, in eye
+    m = zeros((N, M), dtype=dtype, order=order)
+
+
+nlp = ipopt.problem(
+            n=len(x0),
+            m=len(cl),
+            problem_obj=myobj,  # Rw1(cc)
+            lb=lb,
+            ub=ub,
+            cl=cl,
+            cu=cu
+            )
+Traceback (most recent call last):
+
+  File "<ipython-input-177-307f75080d7f>", line 8, in <module>
+    cu=cu
+
+  File "src\cyipopt.pyx", line 313, in cyipopt.problem.__init__
+
+  File "<ipython-input-161-2e786f6dea03>", line 72, in hessianstructure
+    return np.nonzero(np.eye(self.n))
+
+  File "C:\Users\donbo\anaconda3\envs\analysis\lib\site-packages\numpy\lib\twodim_base.py", line 199, in eye
+    m = zeros((N, M), dtype=dtype, order=order)
+
+MemoryError: Unable to allocate 671. GiB for an array with shape (300000, 300000) and data type float64
+
+Here is the numpy problem:
+
+@set_module('numpy')
+def eye(N, M=None, k=0, dtype=float, order='C'):
+    """
+    Return a 2-D array with ones on the diagonal and zeros elsewhere.
+
+    Parameters
+    ----------
+    N : int
+      Number of rows in the output.
+    M : int, optional
+      Number of columns in the output. If None, defaults to `N`.
+    k : int, optional
+      Index of the diagonal: 0 (the default) refers to the main diagonal,
+      a positive value refers to an upper diagonal, and a negative value
+      to a lower diagonal.
+    dtype : data-type, optional
+      Data-type of the returned array.
+    order : {'C', 'F'}, optional
+        Whether the output should be stored in row-major (C-style) or
+        column-major (Fortran-style) order in memory.
+
+        .. versionadded:: 1.14.0
+
+    Returns
+    -------
+    I : ndarray of shape (N,M)
+      An array where all elements are equal to zero, except for the `k`-th
+      diagonal, whose values are equal to one.
+
+    See Also
+    --------
+    identity : (almost) equivalent function
+    diag : diagonal 2-D array from a 1-D array specified by the user.
+
+    Examples
+    --------
+    >>> np.eye(2, dtype=int)
+    array([[1, 0],
+           [0, 1]])
+    >>> np.eye(3, k=1)
+    array([[0.,  1.,  0.],
+           [0.,  0.,  1.],
+           [0.,  0.,  0.]])
+
+    """
+    if M is None:
+        M = N
+    m = zeros((N, M), dtype=dtype, order=order) # this is line 199 of the file
+    if k >= M:
+        return m
+    if k >= 0:
+        i = k
+    else:
+        i = (-k) * M
+    m[:M-k].flat[i::M+1] = 1
+    return m
+
+
+
+
+

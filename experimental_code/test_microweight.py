@@ -6,6 +6,7 @@ Created on Sat Aug 29 05:16:40 2020
 """
 
 # %% imports
+from __future__ import print_function, unicode_literals
 import numpy as np
 import pandas as pd
 from numpy.random import seed
@@ -88,7 +89,7 @@ p = mtp.Problem(h=300000, s=1, k=30)
 p = mtp.Problem(h=500000, s=1, k=50)
 
 seed(1)
-r = np.random.randn(p.targets.size) / 100  # random normal
+r = np.random.randn(p.targets.size) / 50  # random normal
 q = [0, .01, .05, .1, .25, .5, .75, .9, .95, .99, 1]
 np.quantile(r, q)
 targets = (p.targets * (1 + r)).flatten()
@@ -108,13 +109,17 @@ At = np.multiply(p.wh.reshape(p.h, 1), wmat)
 A = At.T
 As = scipy.sparse.coo_matrix(A)
 
-# lb = np.zeros(p.h)
-# ub = lb + 10
-lb = np.full(p.h, 0.5)
-ub = np.full(p.h, 1.5)
+# calculate starting percent differences
+Atraw = np.multiply(p.wh.reshape(p.h, 1), p.xmat)
+# compare sdiff -- starting differences - to res.fun
+sdiff = (np.dot(np.full(p.h, 1), Atraw) - targets) / targets * 100
+sdiff
 
-lb = np.full(p.h, 0)
-ub = np.full(p.h, 100)
+lb = np.full(p.h, 0.25)
+ub = np.full(p.h, 4)
+
+# lb = np.full(p.h, 0)
+# ub = np.full(p.h, np.inf)
 
 p.h
 p.k
@@ -122,26 +127,30 @@ p.k
 start = timer()
 res = lsq_linear(As, b, bounds=(lb, ub),
                  method='trf',
-                 tol=1e-5,
-                 lsmr_tol='auto',
-                 max_iter=40, verbose=2)
+                 tol=1e-6,
+                 #lsmr_tol='auto',
+                 max_iter=50, verbose=2)
 end = timer()
 
 print(end - start)
-np.abs(res.fun).max()
-res.fun
-q = [0, .01, .05, .1, .25, .5, .75, .9, .95, .99, 1]
-np.quantile(res.x, q)
 
-Atraw = np.multiply(p.wh.reshape(p.h, 1), p.xmat)
-sdiff = (np.dot(np.full(p.h, 1), Atraw) - targets) / targets * 100  # compare res.fun
-sdiff
+np.abs(sdiff).max()
+np.abs(res.fun).max()
 
 np.square(sdiff).sum()
 np.square(res.fun).sum()
 
-n, bins, patches = plt.hist(res.x, 500, density=True, facecolor='g', alpha=0.75)
+# compare to cost function
+np.square(sdiff).sum() / 2
+res.cost
+# np.square(res.fun).sum() / 2
 
+sdiff
+res.fun
+q = [0, .01, .05, .1, .25, .5, .75, .9, .95, .99, 1]
+np.quantile(res.x, q)
+
+n, bins, patches = plt.hist(res.x, 50, density=True, facecolor='g', alpha=0.75)
 
 
 res.x
@@ -160,6 +169,816 @@ targets_calc
 targets_calc - targets
 (targets_calc - targets) / targets * 100
 pdiff
+
+
+# %% reweighting classes
+
+# https://pythonhosted.org/ipopt/tutorial.html
+
+# The constructor of the ipopt.problem class requires
+#   n: the number of variables in the problem,
+#   m: the number of constraints in the problem,
+#   lb and ub: lower and upper bounds on the variables,
+#   cl and cu: lower and upper bounds of the constraints
+# problem_obj is an object whose methods implement the objective,
+# gradient, constraints, jacobian, and hessian of the problem.
+
+# The intermediate() method if defined is called every iteration.
+# The jacobianstructure() and hessianstructure() methods if defined
+# should return a tuple which lists the non zero values of the jacobian
+# and hessian matrices respectively.
+# If not defined then these matrices are assumed to be dense.
+# The jacobian() and hessian() methods should return the non zero values
+# as a flattened array.
+# If the hessianstructure() method is not defined then the hessian()
+# method should return a lower traingular matrix (flattened).
+
+
+class Rw1(object):
+    def __init__(self, cc):
+        self.cc = cc
+        self.n = cc.shape[0]
+        self.m = cc.shape[1]
+
+    def objective(self, x):
+        #
+        # The callback for calculating the objective
+        #
+        return np.sum((x - 1)**2)
+
+    def gradient(self, x):
+        #
+        # The callback for calculating the gradient
+        #
+        return 2 * x - 2
+
+    def constraints(self, x):
+        #
+        # The callback for calculating the constraints
+        #
+        return np.dot(x, self.cc)
+
+    # def jacobian(self, x):
+    #     #
+    #     # The callback for calculating the Jacobian
+    #     #  return nonzero elements, flattened
+    #     #
+    #     return self.cc[self.cc != 0]
+
+    def jacobian(self, x):
+        #
+        # The callback for calculating the Jacobian
+        #  return nonzero elements, flattened
+        #
+        return self.cc
+
+    # def jacobianstructure(self):
+    #     return np.nonzero(self.cc)
+
+    # def hessian(self, x, lagrange, obj_factor):
+    #     #
+    #     # The callback for calculating the Hessian
+    #     #
+    #     H = np.full(self.n, 2) * obj_factor
+    #     return H
+
+    # def hessianstructure(self):
+    #     #
+    #     # The structure of the Hessian
+    #     # Note:
+    #     # The default hessian structure is of a lower triangular matrix. Therefore
+    #     # this function is redundant. I include it as an example for structure
+    #     # callback.
+    #     #
+    #     # np.tril returns the lower triangle (including diagonal) of an array.
+    #     # numpy.nonzero returns the indices of the elements that are non-zero.
+    #     #  returns a tuple of arrays, one for each dimension of a,
+    #     #  containing the indices of the non-zero elements in that dimension
+    #     #  The values in a are always tested and returned in
+    #     #  row-major, C-style order.
+    #     #
+    #     return np.nonzero(np.eye(self.n))
+
+    def intermediate(
+            self,
+            alg_mod,
+            iter_count,
+            obj_value,
+            inf_pr,
+            inf_du,
+            mu,
+            d_norm,
+            regularization_size,
+            alpha_du,
+            alpha_pr,
+            ls_trials
+            ):
+        #
+        # Example for the use of the intermediate callback.
+        #
+        # print("Objective value at iteration #%d is - %g" % (iter_count, obj_value))
+        print("Iter, obj, infeas #%d %g %g" % (iter_count, obj_value, inf_pr))
+
+
+
+class Rw2(object):
+    def __init__(self):
+        pass
+
+    def objective(self, x):
+        #
+        # The callback for calculating the objective
+        #
+        return np.sum((x - 1)**2)
+
+    def gradient(self, x):
+        #
+        # The callback for calculating the gradient
+        #
+        return 2 * x - 2
+
+    def constraints(self, x):
+        #
+        # The callback for calculating the constraints
+        #
+        return np.dot(x, cc)
+
+    def jacobian(self, x):
+        #
+        # The callback for calculating the Jacobian
+        #  return nonzero elements, flattened
+        #
+        return cc[cc != 0]
+
+    def jacobianstructure(self):
+        return np.nonzero(cc)
+
+    def hessian(self, x, lagrange, obj_factor):
+        #
+        # The callback for calculating the Hessian
+        #
+        H = np.full(x0.size, 2) * obj_factor
+        return H
+
+    def hessianstructure(self):
+        #
+        # The structure of the Hessian
+        # Note:
+        # The default hessian structure is of a lower triangular matrix. Therefore
+        # this function is redundant. I include it as an example for structure
+        # callback.
+        #
+        # np.tril returns the lower triangle (including diagonal) of an array.
+        # numpy.nonzero returns the indices of the elements that are non-zero.
+        #  returns a tuple of arrays, one for each dimension of a,
+        #  containing the indices of the non-zero elements in that dimension
+        #  The values in a are always tested and returned in
+        #  row-major, C-style order.
+        #
+        return np.nonzero(np.eye(x0.size))
+
+    def intermediate(
+            self,
+            alg_mod,
+            iter_count,
+            obj_value,
+            inf_pr,
+            inf_du,
+            mu,
+            d_norm,
+            regularization_size,
+            alpha_du,
+            alpha_pr,
+            ls_trials
+            ):
+        #
+        # Example for the use of the intermediate callback.
+        #
+        # print("Objective value at iteration #%d is - %g" % (iter_count, obj_value))
+        print("Iter, obj, infeas #%d %g %g" % (iter_count, obj_value, inf_pr))
+
+
+class Rw3(ipopt.problem):
+    def __init__(self, cc):
+        self._cc = cc
+        self._n = cc.shape[0]
+        self._m = cc.shape[1]
+
+        #
+        # The constraint functions are bounded from below by zero.
+        #
+        # cl = np.zeros(2*self._m)
+
+        # super(Rw3, self).__init__(
+        #                     2*self._m,
+        #                     2*self._m,
+        #                     cl=cl
+        #                     )
+
+        #
+        # Set solver options
+        #
+        # self.addOption('derivative_test', 'second-order')
+        # self.addOption('jac_d_constant', 'yes')
+        # self.addOption('hessian_constant', 'yes')
+        # self.addOption('mu_strategy', 'adaptive')
+        self.addOption('max_iter', 100)
+        self.addOption('tol', 1e-8)
+
+    # def solve(self, _lambda):
+
+    #     x0 = np.concatenate((np.zeros(m), np.ones(m)))
+    #     self._lambda = _lambda
+    #     x, info = super(lasso, self).solve(x0)
+
+    #     return x[:self._m]
+
+    def objective(self, x):
+
+        w = x[:self._m].reshape((-1, 1))
+        u = x[self._m:].reshape((-1, 1))
+
+        return np.linalg.norm(self._y - np.dot(self._A, w))**2/2 + self._lambda * np.sum(u)
+
+    def constraints(self, x):
+
+        w = x[:self._m].reshape((-1, 1))
+        u = x[self._m:].reshape((-1, 1))
+
+        return np.vstack((u + w,  u - w))
+
+    def gradient(self, x):
+
+        w = x[:self._m].reshape((-1, 1))
+
+        g = np.vstack((np.dot(-self._A.T, self._y - np.dot(self._A, w)), self._lambda*np.ones((self._m, 1))))
+
+        return g
+
+    def jacobianstructure(self):
+
+        #
+        # Create a sparse matrix to hold the jacobian structure
+        #
+        return np.nonzero(np.tile(np.eye(self._m), (2, 2)))
+
+    def jacobian(self, x):
+
+        I = np.eye(self._m)
+
+        J = np.vstack((np.hstack((I, I)), np.hstack((-I, I))))
+
+        row, col = self.jacobianstructure()
+
+        return J[row, col]
+
+    def hessianstructure(self):
+
+        h = np.zeros((2*self._m, 2*self._m))
+        h[:self._m, :self._m] = np.tril(np.ones((self._m, self._m)))
+
+        #
+        # Create a sparse matrix to hold the hessian structure
+        #
+        return np.nonzero(h)
+
+    def hessian(self, x, lagrange, obj_factor):
+
+        H = np.zeros((2*self._m, 2*self._m))
+        H[:self._m, :self._m] = np.tril(np.tril(np.dot(self._A.T, self._A)))
+
+        row, col = self.hessianstructure()
+
+        return obj_factor*H[row, col]
+
+
+class Rw4(object):
+    def __init__(self, cc):
+        self.cc = cc
+        self.n = cc.shape[0]
+        self.m = cc.shape[1]
+
+    def objective(self, x):
+        #
+        # The callback for calculating the objective
+        #
+        return np.sum((x - 1)**2)
+
+    def gradient(self, x):
+        #
+        # The callback for calculating the gradient
+        #
+        return 2 * x - 2
+
+    def constraints(self, x):
+        #
+        # The callback for calculating the constraints
+        #
+        return np.dot(x, self.cc)
+
+    # def jacobian(self, x):
+    #     #
+    #     # The callback for calculating the Jacobian
+    #     #  return nonzero elements, flattened
+    #     #
+    #     return self.cc[self.cc != 0]
+
+    # def jacobianstructure(self):
+    #     return np.nonzero(self.cc)
+
+    # def jacobian(self, x):
+    #     #
+    #     # The callback for calculating the Jacobian
+    #     #  return nonzero elements, flattened
+    #     #
+    #     row, col = self.jacobianstructure()
+    #     return self.cc[row, col]
+
+    def jacobian(self, x):
+        #
+        # The callback for calculating the Jacobian
+        #  return nonzero elements, flattened
+        #
+        return self.cc
+
+    def hessian(self, x, lagrange, obj_factor):
+        #
+        # The callback for calculating the Hessian
+        #
+        H = np.full(self.n, 2) * obj_factor
+        return H
+
+    def hessianstructure(self):
+        #
+        # The structure of the Hessian
+        # Note:
+        # The default hessian structure is of a lower triangular matrix. Therefore
+        # this function is redundant. I include it as an example for structure
+        # callback.
+        #
+        # np.tril returns the lower triangle (including diagonal) of an array.
+        # numpy.nonzero returns the indices of the elements that are non-zero.
+        #  returns a tuple of arrays, one for each dimension of a,
+        #  containing the indices of the non-zero elements in that dimension
+        #  The values in a are always tested and returned in
+        #  row-major, C-style order.
+        #
+        return np.nonzero(np.eye(self.n))
+
+    def intermediate(
+            self,
+            alg_mod,
+            iter_count,
+            obj_value,
+            inf_pr,
+            inf_du,
+            mu,
+            d_norm,
+            regularization_size,
+            alpha_du,
+            alpha_pr,
+            ls_trials
+            ):
+        #
+        # Example for the use of the intermediate callback.
+        #
+        # print("Objective value at iteration #%d is - %g" % (iter_count, obj_value))
+        print("Iter, obj, infeas #%d %g %g" % (iter_count, obj_value, inf_pr))
+
+
+# TODO:
+#   get sparse jacobian working
+#   why is inf_pr from callback different from terminal??
+#   compile with hsl
+
+class Rw5(object):
+    def __init__(self, cc):
+        self.cc = cc
+        self.n = cc.shape[0]
+        self.m = cc.shape[1]
+
+    def objective(self, x):
+        #
+        # The callback for calculating the objective
+        #
+        return np.sum((x - 1)**2)
+
+    def gradient(self, x):
+        #
+        # The callback for calculating the gradient
+        #
+        return 2 * x - 2
+
+    def constraints(self, x):
+        #
+        # The callback for calculating the constraints
+        #
+        return np.dot(x, self.cc)
+
+    # def jacobian(self, x):
+    #     #
+    #     # The callback for calculating the Jacobian
+    #     #  return nonzero elements, flattened
+    #     #
+    #     return self.cc[self.cc != 0]
+
+    # def jacobianstructure(self):
+    #     return np.nonzero(self.cc)
+
+    # def jacobian(self, x):
+    #     #
+    #     # The callback for calculating the Jacobian
+    #     #  return nonzero elements, flattened
+    #     #
+    #     row, col = self.jacobianstructure()
+    #     return self.cc[row, col]
+
+    def jacobian(self, x):
+        #
+        # The callback for calculating the Jacobian
+        #  return nonzero elements, flattened
+        #
+        return self.cc.T
+
+    def hessian(self, x, lagrange, obj_factor):
+        #
+        # The callback for calculating the Hessian
+        #
+        H = np.full(self.n, 2) * obj_factor
+        return H
+
+    def hessianstructure(self):
+        #
+        # The structure of the Hessian
+        # Note:
+        # The default hessian structure is of a lower triangular matrix. Therefore
+        # this function is redundant. I include it as an example for structure
+        # callback.
+        #
+        # np.tril returns the lower triangle (including diagonal) of an array.
+        # numpy.nonzero returns the indices of the elements that are non-zero.
+        #  returns a tuple of arrays, one for each dimension of a,
+        #  containing the indices of the non-zero elements in that dimension
+        #  The values in a are always tested and returned in
+        #  row-major, C-style order.
+        #
+        return np.nonzero(np.eye(self.n))
+
+    def intermediate(
+            self,
+            alg_mod,
+            iter_count,
+            obj_value,
+            inf_pr,
+            inf_du,
+            mu,
+            d_norm,
+            regularization_size,
+            alpha_du,
+            alpha_pr,
+            ls_trials
+            ):
+        #
+        # Example for the use of the intermediate callback.
+        #
+        # print("Objective value at iteration #%d is - %g" % (iter_count, obj_value))
+        print("Iter, obj, infeas #%d %g %g" % (iter_count, obj_value, inf_pr))
+
+
+class Rw6(object):
+    def __init__(self, cc):
+        self.cc = cc
+        self.n = cc.shape[0]
+        self.m = cc.shape[1]
+
+    def objective(self, x):
+        #
+        # The callback for calculating the objective
+        #
+        return np.sum((x - 1)**2)
+
+    def gradient(self, x):
+        #
+        # The callback for calculating the gradient
+        #
+        return 2 * x - 2
+
+    def constraints(self, x):
+        #
+        # The callback for calculating the constraints
+        #
+        return np.dot(x, self.cc)
+
+    # def jacobian(self, x):
+    #     #
+    #     # The callback for calculating the Jacobian
+    #     #  return nonzero elements, flattened
+    #     #
+    #     return self.cc[self.cc != 0]
+
+    def jacobianstructure(self):
+        return np.nonzero(self.cc.T)
+
+    def jacobian(self, x):
+        #
+        # The callback for calculating the Jacobian
+        #  return nonzero elements, flattened
+        #
+        row, col = self.jacobianstructure()
+        return self.cc.T[row, col]
+
+    # def jacobian(self, x):
+    #     #
+    #     # The callback for calculating the Jacobian
+    #     #  return nonzero elements, flattened
+    #     #
+    #     return self.cc.T
+
+    def hessian(self, x, lagrange, obj_factor):
+        #
+        # The callback for calculating the Hessian
+        #
+        H = np.full(self.n, 2) * obj_factor
+        return H
+
+    def hessianstructure(self):
+        #
+        # The structure of the Hessian
+        # Note:
+        # The default hessian structure is of a lower triangular matrix. Therefore
+        # this function is redundant. I include it as an example for structure
+        # callback.
+        #
+        # np.tril returns the lower triangle (including diagonal) of an array.
+        # numpy.nonzero returns the indices of the elements that are non-zero.
+        #  returns a tuple of arrays, one for each dimension of a,
+        #  containing the indices of the non-zero elements in that dimension
+        #  The values in a are always tested and returned in
+        #  row-major, C-style order.
+        #
+        hidx = np.arange(0, self.n, dtype='int64')
+        hstruct = (hidx, hidx)
+        return hstruct
+
+    def intermediate(
+            self,
+            alg_mod,
+            iter_count,
+            obj_value,
+            inf_pr,
+            inf_du,
+            mu,
+            d_norm,
+            regularization_size,
+            alpha_du,
+            alpha_pr,
+            ls_trials
+            ):
+        #
+        # Example for the use of the intermediate callback.
+        #
+        # print("Objective value at iteration #%d is - %g" % (iter_count, obj_value))
+        print("Iter, obj, infeas #%d %g %g" % (iter_count, obj_value, inf_pr))
+
+
+
+# %% test reweighting
+
+b = np.nonzero(np.eye(5))
+type(b)
+np.array([arange])
+a = np.arange(0, 4, dtype='int64')
+a
+a.astype('int64')
+def hessianstructure(n):
+    # (array([0, 1, 2, 3, 4], dtype=int64), array([0, 1, 2, 3, 4], dtype=int64))
+    hidx = np.arange(0, n, dtype='int64')
+    hstruct = (hidx, hidx)
+    return hstruct
+
+hessianstructure(10)
+
+p = mtp.Problem(h=10, s=1, k=2)
+p = mtp.Problem(h=100, s=1, k=4)
+p = mtp.Problem(h=3000, s=1, k=10)
+p = mtp.Problem(h=30000, s=1, k=20)
+p = mtp.Problem(h=300000, s=1, k=30)
+p = mtp.Problem(h=500000, s=1, k=50)
+
+p.wh
+p.xmat
+cc = p.xmat * p.wh[:, None]  # multiply each column of xmat by wh
+
+p.targets
+seed(1)
+r = np.random.randn(p.targets.size) / 50  # random normal
+q = [0, .01, .05, .1, .25, .5, .75, .9, .95, .99, 1]
+np.quantile(r, q)
+targets = (p.targets * (1 + r)).flatten()
+targets
+
+x0 = np.ones(p.xmat.shape[0])
+lb = np.full(x0.size, 0)
+ub = np.full(x0.size, 100)
+cl = targets * .9
+cu = targets * 1.1
+
+myobj = Rw6(cc)
+
+nlp = ipopt.problem(
+            n=len(x0),
+            m=len(cl),
+            problem_obj=myobj,  # Rw1(cc)
+            lb=lb,
+            ub=ub,
+            cl=cl,
+            cu=cu
+            )
+
+
+x, info = nlp.solve(x0)
+
+
+myobj.objective(x0)
+myobj.constraints(x0)
+
+myobj.hessian(x0, 1, 1)
+myobj.hessianstructure()
+
+j = myobj.jacobian(x0)
+j
+cc
+j.size
+cc.size
+js = np.nonzero(cc)
+row, col = js
+j2 = cc[row, col]
+j2.size
+row, col = myobj.jacobianstructure()
+row, col
+cc[row, col]
+cc
+
+ccnz = cc[row, col]
+ccnz.size
+cc.size
+
+
+
+# %% other stuff
+
+def jacd(m):
+    I = np.eye(m)
+    J = np.vstack((np.hstack((I, I)), np.hstack((-I, I))))
+    return J
+
+def jacs(m):
+    I = np.eye(m)
+    J = np.vstack((np.hstack((I, I)), np.hstack((-I, I))))
+    row, col = jacstr(m)
+    return J[row, col]
+
+def jacstr(m):
+    return np.nonzero(np.tile(np.eye(m), (2, 2)))
+
+m = 3
+jacd(m)
+jacstr(m)
+jacs(m)
+
+
+x0 = [1.0, 5.0, 5.0, 1.0]
+
+lb = [1.0, 1.0, 1.0, 1.0]
+ub = [5.0, 5.0, 5.0, 5.0]
+
+cl = [25.0, 40.0]
+cu = [2.0e19, 40.0]
+
+
+p.wh
+p.xmat
+cc = p.xmat * p.wh[:, None]  # multiply each column of xmat by wh
+
+p.targets
+seed(1)
+r = np.random.randn(p.targets.size) / 50  # random normal
+q = [0, .01, .05, .1, .25, .5, .75, .9, .95, .99, 1]
+np.quantile(r, q)
+targets = (p.targets * (1 + r)).flatten()
+
+x0 = np.ones(p.xmat.shape[0])
+lb = np.full(x0.size, 0)
+ub = np.full(x0.size, 100)
+cl = targets * .9
+cu = targets * 1.1
+
+myobj = Rw(cc)
+
+myobj.objective(x0)
+myobj.constraints(x0)
+
+nlp = ipopt.problem(
+            n=len(x0),
+            m=len(cl),
+            problem_obj=Rw2(),
+            lb=lb,
+            ub=ub,
+            cl=cl,
+            cu=cu
+            )
+
+
+x, info = nlp.solve(x0)
+
+
+def objective(x):
+    #
+    # The callback for calculating the objective
+    #
+    return np.sum((x - 1)**2)
+
+
+def gradient(x):
+    #
+    # The callback for calculating the gradient
+    #
+    return 2 * x - 2
+
+
+def constraints(x, cc):
+    #
+    # The callback for calculating the constraints
+    #
+    return np.dot(x, cc)
+
+
+def jacobian(x, cc):
+    #
+    # The callback for calculating the Jacobian
+    #  return nonzero elements, flattened
+    #
+    return cc[cc != 0]
+
+
+def jacobianstructure(cc):
+    return np.nonzero(cc)
+
+
+def hessianstructure(self):
+    #
+    # The structure of the Hessian
+    # Note:
+    # The default hessian structure is of a lower triangular matrix. Therefore
+    # this function is redundant. I include it as an example for structure
+    # callback.
+    #
+    # np.tril returns the lower triangle (including diagonal) of an array.
+    # numpy.nonzero returns the indices of the elements that are non-zero.
+    #  returns a tuple of arrays, one for each dimension of a,
+    #  containing the indices of the non-zero elements in that dimension
+    #  The values in a are always tested and returned in
+    #  row-major, C-style order.
+    #
+    return np.nonzero(np.eye(x.size))
+
+np.nonzero(np.eye(x.size))
+
+
+
+def hessian(self, x, lagrange, obj_factor):
+    #
+    # The callback for calculating the Hessian
+    #
+    H = np.full(x.size, 2) * obj_factor
+    return H
+
+
+row = ([4, 6])
+col = ([2, 3])
+row, col
+p.xmat[row, col]
+p.xmat
+
+
+p.wh
+p.xmat
+cc = p.xmat * p.wh[:, None]  # multiply each column of xmat by wh
+x = np.ones(p.xmat.shape[0])
+constraints(x, cc)
+jacobian(x, cc)
+jacobianstructure(cc)
+p.targets
+seed(1)
+r = np.random.randn(p.targets.size) / 50  # random normal
+q = [0, .01, .05, .1, .25, .5, .75, .9, .95, .99, 1]
+np.quantile(r, q)
+targets = (p.targets * (1 + r)).flatten()
+
+
+
+
+
 
 
 
