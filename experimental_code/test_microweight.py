@@ -6,8 +6,8 @@ Created on Sat Aug 29 05:16:40 2020
 """
 
 # %% imports
-import os
 from __future__ import print_function, unicode_literals
+import os
 import numpy as np
 import pandas as pd
 from numpy.random import seed
@@ -745,6 +745,7 @@ class Rw6(object):
 
 # %% test reweighting
 
+
 p = mtp.Problem(h=10, s=1, k=2)
 p = mtp.Problem(h=100, s=1, k=4)
 p = mtp.Problem(h=3000, s=1, k=10)
@@ -757,16 +758,18 @@ p = mtp.Problem(h=1000000, s=1, k=100)
 p.wh
 p.xmat
 cc = p.xmat * p.wh[:, None]  # multiply each column of xmat by wh
-# get multiplicative scaling factors - make average derivative 1 (or other goal)
+# get multiplicative scaling factors - make avg derivative 1 (or other goal)
 ccgoal = 1
-ccscale = ccgoal / (cc.sum(axis=0) / cc.shape[0])
-# ccscale = ccgoal / np.median(cc, axis = 0)
-cc = cc * ccscale # mult by scale to have avg derivative meet our goal
+# use mean or median as the denominator
+denom = ccgoal / (cc.sum(axis=0) / cc.shape[0])  # mean
+# denom = np.median(cc, axis = 0)
+ccscale = np.absolute(ccgoal / denom)
+cc = cc * ccscale  # mult by scale to have avg derivative meet our goal
 
 
 p.targets
 seed(1)
-r = np.random.randn(p.targets.size) / 100  # random normal
+r = np.random.randn(p.targets.size) / 50  # random normal
 q = [0, .01, .05, .1, .25, .5, .75, .9, .95, .99, 1]
 np.quantile(r, q)
 targets = (p.targets * (1 + r)).flatten()
@@ -777,8 +780,8 @@ targets
 x0 = np.ones(p.xmat.shape[0])
 lb = np.full(x0.size, 0.1)
 ub = np.full(x0.size, 100)
-cl = targets * .95
-cu = targets * 1.05
+cl = targets * .97
+cu = targets * 1.03
 
 myobj = Rw6(cc)
 myobj.constraints(x0)
@@ -869,6 +872,8 @@ x, info = nlp.solve(x0)
 # myobj.constraints(x0)
 # myobj.constraints(x)
 # targets
+np.sum(x0 * p.wh)
+np.sum(x * p.wh)
 
 myobj.constraints(x) / targets * 100 - 100
 np.quantile(x, q)
