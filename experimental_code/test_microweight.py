@@ -6,6 +6,7 @@ Created on Sat Aug 29 05:16:40 2020
 """
 
 # %% imports
+import os
 from __future__ import print_function, unicode_literals
 import numpy as np
 import pandas as pd
@@ -744,46 +745,45 @@ class Rw6(object):
 
 # %% test reweighting
 
-b = np.nonzero(np.eye(5))
-type(b)
-np.array([arange])
-a = np.arange(0, 4, dtype='int64')
-a
-a.astype('int64')
-def hessianstructure(n):
-    # (array([0, 1, 2, 3, 4], dtype=int64), array([0, 1, 2, 3, 4], dtype=int64))
-    hidx = np.arange(0, n, dtype='int64')
-    hstruct = (hidx, hidx)
-    return hstruct
-
-hessianstructure(10)
-
 p = mtp.Problem(h=10, s=1, k=2)
 p = mtp.Problem(h=100, s=1, k=4)
 p = mtp.Problem(h=3000, s=1, k=10)
 p = mtp.Problem(h=30000, s=1, k=20)
+p = mtp.Problem(h=100000, s=1, k=25)
 p = mtp.Problem(h=300000, s=1, k=30)
 p = mtp.Problem(h=500000, s=1, k=50)
+p = mtp.Problem(h=1000000, s=1, k=100)
 
 p.wh
 p.xmat
 cc = p.xmat * p.wh[:, None]  # multiply each column of xmat by wh
+# get multiplicative scaling factors - make average derivative 1 (or other goal)
+ccgoal = 1
+ccscale = ccgoal / (cc.sum(axis=0) / cc.shape[0])
+# ccscale = ccgoal / np.median(cc, axis = 0)
+cc = cc * ccscale # mult by scale to have avg derivative meet our goal
+
 
 p.targets
 seed(1)
-r = np.random.randn(p.targets.size) / 50  # random normal
+r = np.random.randn(p.targets.size) / 100  # random normal
 q = [0, .01, .05, .1, .25, .5, .75, .9, .95, .99, 1]
 np.quantile(r, q)
 targets = (p.targets * (1 + r)).flatten()
+targets = targets * ccscale
 targets
 
+# x0 = np.ones(p.xmat.shape[0]) * 1.035
 x0 = np.ones(p.xmat.shape[0])
-lb = np.full(x0.size, 0)
+lb = np.full(x0.size, 0.1)
 ub = np.full(x0.size, 100)
-cl = targets * .9
-cu = targets * 1.1
+cl = targets * .95
+cu = targets * 1.05
 
 myobj = Rw6(cc)
+myobj.constraints(x0)
+cl
+cu
 
 nlp = ipopt.problem(
             n=len(x0),
@@ -795,12 +795,86 @@ nlp = ipopt.problem(
             cu=cu
             )
 
+nlp.addOption('file_print_level', 6)
+outfile = 'test.out'
+if os.path.exists(outfile):
+    os.remove(outfile)
+nlp.addOption('output_file', outfile)
+
+# nlp.addOption('mu_strategy', 'adaptive')
+# nlp.addOption('mehrotra_algorithm', 'yes')
+
+nlp.addOption('jac_d_constant', 'yes')
+nlp.addOption('hessian_constant', 'yes')
+nlp.addOption('max_iter', 100)
+
+# nlp.addOption('tol', 1e-7)
+
+xtest = np.full(x0.size, 1.05)
+objbase = myobj.objective(xtest)
+objbase
+objgoal = 10
+objscale = objgoal / objbase
+objscale = objscale.item()
+objscale
+# if(x0.size < 1e4):
+#     objscale = 1.0
+# else:
+#     objscale = objscale.item()  # native float is needed
+
+# type(objscale)
+# objscale = np.float32(objscale)
+# objscale = np.double(objscale)
+# objscale = np.single(objscale)
+
+# type(1e-2)
+# objscale = .0003
+# objscale = .01
+
+nlp.addOption('obj_scaling_factor', objscale)  # multiplier
+
+# nlp.setProblemScaling(obj_scaling=1e2)  # multiplier
+# nlp.setProblemScaling(obj_scaling=1)
+
+# xscale = np.full(x0.shape, 1e-2)
+# nlp.setProblemScaling(x_scaling=xscale)
+
+# nlp.addOption('linear_solver', 'ma57')
 
 x, info = nlp.solve(x0)
 
+# iter, secs:
+# 50, 305 far from solved - No scaling by me or ipopt
 
-myobj.objective(x0)
-myobj.constraints(x0)
+# 31, 174 my scaling 10 but no obj_scaling
+# 31, 178 my scaling 10, obj_scaling 1e-2
+# 31, 178  my scaling 10, obj_scaling 1e2
+
+# 21, 120 optimal but slacks, my scaling 1, no obj_scaling
+# 21, 120 optimal but slacks, my scaling 1, no obj_scaling, xscaling 1e-2
+# myscale 1, objscaling 1e-2: 22, 125, no issues
+# myscale 1, objscaling 1e-2, mustrat adaptive: 23, 142, slacks
+# myscale 1, objscaling 1e-2, mehrotra: 24, 143, slacks
+
+# myscale 1, objscaling 1e-4: 30, 166
+# myscale 1, objscaling 1.05-based: 32, 176
+# myscale 1, objscaling 1.05-based x 10: 28, 155
+# myscale 1, objscaling 1.05-based x 100: 27, 150
+# myscale 1, objscaling 1.05-based x 100, jac constant: 27, 142
+# myscale 1, objscaling 1.05-based x 100, jac+hess constant: 27, 131
+
+# 383396
+
+# myobj.objective(x0)
+# myobj.constraints(x0)
+# myobj.constraints(x)
+# targets
+
+myobj.constraints(x) / targets * 100 - 100
+np.quantile(x, q)
+np.quantile(x, [.5, .9, .97, .98, .981, .982, .985, .99, .995, 1])
+
+n, bins, patches = plt.hist(x, 100, density=True, facecolor='g', alpha=0.75)
 
 myobj.hessian(x0, 1, 1)
 myobj.hessianstructure()

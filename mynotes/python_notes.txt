@@ -114,10 +114,12 @@ https://medium.com/@vince.shields913/econometrics-with-python-pt-2-608e67070364
 In addition to tools installed with ipopt:
 conda install pandas scikit-learn matplotlib Seaborn Bokeh Plotly
 
-# installing and using ipopt in Windows
+# installing cyipopt in Windows
 ## resources:
 https://coin-or.github.io/Ipopt/
 https://coin-or.github.io/Ipopt/OPTIONS.html
+
+https://pypi.org/project/ipopt/  # the main site
 https://github.com/matthias-k/cyipopt
 
 https://pythonhosted.org/ipopt/  # documentation
@@ -125,6 +127,8 @@ https://pythonhosted.org/ipopt/tutorial.html
 https://pythonhosted.org/ipopt/reference.html#reference
 https://list.coin-or.org/pipermail/ipopt/2011-September/002601.html
 
+https://github.com/matthias-k/cyipopt/issues/70
+https://github.com/casadi/testbot/blob/trusty-pinned/recipes/mingw64_coinhsl.sh
 
 ## preparation:
 
@@ -150,95 +154,252 @@ https://list.coin-or.org/pipermail/ipopt/2011-September/002601.html
 	cd C:\cyipopt_dir\cyipopt
 	python setup.py install
 
+# installing hsl dll for use with cyipopt in Windows
+## notes from hsl docs
+
+An easy way to generate this shared library is to use the "configure"
+script in this directory, using the following instructions:
+[djb: "this directory" is: C:\cyipopt_hsl\Ipopt-3.11.0\ThirdParty\HSL]
+
+1. Put the HSL routines that are available to you into this directory
+   (see above).
+
+[Note: I think this means do this:
+mv ../../coinhsl-2019.05.21 ThirdParty/coinhsl
+that is, put it as a folder in the directory
+
+	C:\cyipopt_hsl\Ipopt-3.11.0\ThirdParty
+
+with folder name coinhsl
+I have done so 9/7/2020
+]
+
+2. Run the configure script of ThirdParty/HSL (not the one in the
+   Ipopt base directory!).  As arguments, you would essentially
+   provide the same flags as you would usually when you compile Ipopt,
+   but you need to add the flag "--enable-loadable-library".  Since
+   you are compiling a shared library, you cannot specify the
+   "--disable-shared" flag.
+
+[djb: I believe that would be this script:
+C:\cyipopt_hsl\Ipopt-3.11.0\ThirdParty\HSL\configure
+]
+
+3. Then just run "make install".  If it works, this should give you
+   the shared library in the "lib" subdirectory in the directory where
+   you run the ThirdParty/HSL/configure script.
+
+4. To use the shared library, you need to make sure that Ipopt will
+   find it when it is looking for it.  On most UNIX systems, you need
+   to put the shared library into a directory in the LD_LIBRARY_PATH
+   search path, and on Windows it needs to be in the PATH.
+
+## another HSL doc
+
+Building Windows DLLs
+=====================
+
+Summary:
+0) tar -zxvpf /path/to/metis-4.0.3.tar.gz
+1) ./configure --with-blas="-L/path/to/blas/dir -lblas"
+2) make
+3a) cp .libs/libcoinhsl-0.dll /install/path/libhsl.dll
+3b) cp .libs/libmetis-0.dll /install/path/libmetis.dll
+
+These instructions have only been tested under MinGW. Your mileage may vary
+with cygwin or other build tools.
+
+Notes on steps:
+
+0) By placing the metis-4.0.3 directory in the root of this package, the build
+scripts will compile it to a DLL for you. The libhsl.dll produced can then call metis (or any libmetis.dll produced in another way).
+
+1) As Windows DLLs require all symbols to be defined internally, the build
+process requires a BLAS library DLL to be available. It can be supplied using
+the --with-blas= option to configure. The library must be specified in the form
+"-L/path -lblas" and not "/path/blas.dll" as only the former is supported by
+libtool for shared library dependencies. Note that the BLAS library DLL is
+merged with the HSL objects to create the new self contained libhsl.dll.
+
+2) The make command will compile static and DLL versions of the code and
+place them in the hidden .libs directory.
+
+3) Rather than make install, copy and rename the files to their desired
+locations. Ipopt explicitly searches for "libhsl.dll" while this package
+explicitly searches for "
+Building Windows DLLs
+=====================
+
+Summary:
+0) tar -zxvpf /path/to/metis-4.0.3.tar.gz
+1) ./configure --with-blas="-L/path/to/blas/dir -lblas"
+2) make
+3a) cp .libs/libcoinhsl-0.dll /install/path/libhsl.dll
+3b) cp .libs/libmetis-0.dll /install/path/libmetis.dll
+
+These instructions have only been tested under MinGW. Your mileage may vary
+with cygwin or other build tools.
+
+Notes on steps:
+
+0) By placing the metis-4.0.3 directory in the root of this package, the build
+scripts will compile it to a DLL for you. The libhsl.dll produced can then call metis (or any libmetis.dll produced in another way).
+
+1) As Windows DLLs require all symbols to be defined internally, the build
+process requires a BLAS library DLL to be available. It can be supplied using
+the --with-blas= option to configure. The library must be specified in the form
+"-L/path -lblas" and not "/path/blas.dll" as only the former is supported by
+libtool for shared library dependencies. Note that the BLAS library DLL is
+merged with the HSL objects to create the new self contained libhsl.dll.
+
+2) The make command will compile static and DLL versions of the code and
+place them in the hidden .libs directory.
+
+3) Rather than make install, copy and rename the files to their desired
+locations. Ipopt explicitly searches for "libhsl.dll" while this package
+explicitly searches for "libmetis.dll".
+
+You may also need to copy the following MinGW DLLs to run outside of a MinGW
+environment:
+libgcc_s_dw2-1.dll
+libgfortran-3.dll
+libquadmath-0.dll
+".
+
+You may also need to copy the following MinGW DLLs to run outside of a MinGW
+environment:
+libgcc_s_dw2-1.dll
+libgfortran-3.dll
+libquadmath-0.dll
+
+## dll doc in the Ipopt dll archive:
+The DLLs in this directory export the C interface of the Ipopt solver, as well as its C++ interface 
+(which can be accessed via the IpoptApplicationFactory method). By linking against the import library 
+you can use these DLLs from within any code compiled using the MSVC 2005/2008/2010 and/or Intel compilers 
+for the Windows platform. 
+
+The DLLs include the MUMPS solver by default, and can dynamically load a separate DLL containing the 
+(non-free) HSL solvers if available. If you have access to the HSL solver sources, you have to compile 
+the DLL for the HSL solvers yourself. The v8-ifort directory in the Ipopt source distribution contains 
+a separate libhsl project to create the DLL using the Intel fortran compiler. Alternatively, you can compile
+libhsl using f2c and C++ (cf. the v8 MSVC project).
+ 
+To use these DLLs, you need to add the include\coin directory to the include path of your MSVC project.
+In addition, you have to make sure that you have HAVE_CONFIG_H defined in your project, and that the Ipopt 
+import library for your platform is added to list of  linker inputs of your project. To run your program, 
+you have to copy the correct Ipopt DLL for your platform and configuration to the directory where your 
+executable is located. 
+
+Please note that the debug and release versions of the Ipopt DLL are *not* binary compatible, because 
+the MSVC compiler unfortunately treats std::string objects slightly differently in both configurations. 
+Using a release DLL in debug code and vice versa will therefore propably lead to stack corruption, runtime 
+errors, or other hard-to-explain crashes.
+
+This binary distribution only contains the optimized MKL version of the Fortran solver DLL IpoptFSS.dll. You 
+can re-use this for any configuration of the Ipopt solver itself (Debug/Release, MSVC 2005/2008/2010). 
+
+It also contains just the Release versions of the Ipopt solver itself plus the necessary runtime DLLs. Because 
+the Debug runtime DLLs are not redistributable, you have to build the Debug configurations of the Ipopt solver 
+yourself using the v8-ifort MSVC solution, if you are developing Debug versions of your own software using 
+the Ipopt solver. When doing so, you can safely link against the MKL release version of IpoptFSS.dll. 
+
+Author:  Marcel Roelofs (Marcel.Roelofs at aimms.com)
+	 Paragon Decision Technology 
+	 2013-05-24
+
+# using ipopt
 ## issues
-File "C:\Users\donbo\anaconda3\envs\analysis\lib\site-packages\numpy\lib\twodim_base.py", line 199, in eye
-    m = zeros((N, M), dtype=dtype, order=order)
 
 
-nlp = ipopt.problem(
-            n=len(x0),
-            m=len(cl),
-            problem_obj=myobj,  # Rw1(cc)
-            lb=lb,
-            ub=ub,
-            cl=cl,
-            cu=cu
-            )
-Traceback (most recent call last):
+## scaling advice
+https://list.coin-or.org/pipermail/ipopt/2007-December/000975.html
+https://projects.coin-or.org/Ipopt/wiki/HintsAndTricks
+https://www.gams.com/latest/docs/S_CONOPT.html#CONOPT_SCALING
 
-  File "<ipython-input-177-307f75080d7f>", line 8, in <module>
-    cu=cu
+Scaling
+Nonlinear as well as Linear Programming Algorithms use the derivatives of the objective function and the constraints to determine good search directions, and they use function values to determine if constraints are satisfied or not. The scaling of the variables and constraints, i.e. the units of measurement used for the variables and constraints, determine the relative size of the derivatives and of the function values and thereby also the search path taken by the algorithm.
 
-  File "src\cyipopt.pyx", line 313, in cyipopt.problem.__init__
+Assume for example that two goods of equal importance both cost $1 per kg. The first is measured in gram, the second in tons. The coefficients in the cost function will be $1000/g and $0.001/ton, respectively. If cost is measured in $1000 units then the coefficients will be 1 and 1.e-6, and the smaller may be ignored by the algorithm since it is comparable to some of the zero tolerances.
 
-  File "<ipython-input-161-2e786f6dea03>", line 72, in hessianstructure
-    return np.nonzero(np.eye(self.n))
+CONOPT assumes implicitly that the model to be solved is well scaled. In this context well scaled means:
 
-  File "C:\Users\donbo\anaconda3\envs\analysis\lib\site-packages\numpy\lib\twodim_base.py", line 199, in eye
-    m = zeros((N, M), dtype=dtype, order=order)
+Basic and superbasic solution values are expected to be around 1, e.g. from 0.01 to 100. Nonbasic variables will be at a bound, and the bound values should not be larger than say 100.
+Dual variables (or marginals) on active constraints are expected to be around 1, e.g. from 0.01 to 100. Dual variables on non-binding constraints will of course be zero.
+Derivatives (or Jacobian elements) are expected to be around 1, e.g. from 0.01 to 100.
+Variables become well scaled if they are measured in appropriate units. In most cases you should select the unit of measurement for the variables so their expected value is around unity. Of course there will always be some variation. Assume x(i) is the production at location i. In most cases you should select the same unit of measurement for all components of x, for example a value around the average capacity.
 
-MemoryError: Unable to allocate 671. GiB for an array with shape (300000, 300000) and data type float64
+Equations become well scaled if the individual terms are measured in appropriate units. After you have selected units for the variables you should select the unit of measurement for the equations so the expected values of the individual terms are around one. If you follow these rules, material balance equations will usually have coefficients of plus and minus one.
 
-Here is the numpy problem:
+Derivatives will usually be well scaled whenever the variables and equations are well scaled. To see if the derivatives are well scaled, run your model with a positive Option LimRow and look for very large or very small coefficients in the equation listing in the GAMS output file.
 
-@set_module('numpy')
-def eye(N, M=None, k=0, dtype=float, order='C'):
-    """
-    Return a 2-D array with ones on the diagonal and zeros elsewhere.
+CONOPT computes a measure of the scaling of the Jacobian, both in the initial and in the final point, and if it seems large it will be printed. The message looks like:
 
-    Parameters
-    ----------
-    N : int
-      Number of rows in the output.
-    M : int, optional
-      Number of columns in the output. If None, defaults to `N`.
-    k : int, optional
-      Index of the diagonal: 0 (the default) refers to the main diagonal,
-      a positive value refers to an upper diagonal, and a negative value
-      to a lower diagonal.
-    dtype : data-type, optional
-      Data-type of the returned array.
-    order : {'C', 'F'}, optional
-        Whether the output should be stored in row-major (C-style) or
-        column-major (Fortran-style) order in memory.
-
-        .. versionadded:: 1.14.0
-
-    Returns
-    -------
-    I : ndarray of shape (N,M)
-      An array where all elements are equal to zero, except for the `k`-th
-      diagonal, whose values are equal to one.
-
-    See Also
-    --------
-    identity : (almost) equivalent function
-    diag : diagonal 2-D array from a 1-D array specified by the user.
-
-    Examples
-    --------
-    >>> np.eye(2, dtype=int)
-    array([[1, 0],
-           [0, 1]])
-    >>> np.eye(3, k=1)
-    array([[0.,  1.,  0.],
-           [0.,  0.,  1.],
-           [0.,  0.,  0.]])
-
-    """
-    if M is None:
-        M = N
-    m = zeros((N, M), dtype=dtype, order=order) # this is line 199 of the file
-    if k >= M:
-        return m
-    if k >= 0:
-        i = k
-    else:
-        i = (-k) * M
-    m[:M-k].flat[i::M+1] = 1
-    return m
+   ** WARNING **  The variance of the derivatives in the initial
+                  point is large (= 4.1 ). A better initial
+                  point, a better scaling, or better bounds on the
+                  variables will probably help the optimization.
+The variance is computed as Sqrt(Sum(Log(Abs(jac(i)))**2)/nz) where jac(i) represents the nz nonzero derivatives (Jacobian elements) in the model. A variance of 4.1 corresponds to an average value of Log(jac)**2 of 4.1**2, which means that Jacobian values outside the range Exp(-4.1)=0.017 to Exp(+4.1)=60.4 are about as common at values inside. This range is for most models acceptable, while a variance of 5, corresponding to about half the derivatives outside the range Exp(-5)=0.0067 to Exp(+5)=148, can be dangerous.
 
 
+Scaling of Intermediate Variables
+Many models have a set of variables with a real economic or physical interpretation plus a set of intermediate or helping variables that are used to simplify the model. We have seen some of these in section Simple Expressions on Simple Expressions. It is usually rather easy to select good scaling units for the real variables since we know their order of magnitude from economic or physical considerations. However, the intermediate variables and their defining equations should preferably also be well scaled, even if they do not have an immediate interpretation. Consider the following model fragment where x, y, and z are variables and y is the intermediate variable:
+
+   Set p / p0*p4 /
+   Parameter a(p) / p0 211, p1 103, p2 42, p3 31, p4 6 /
+   yDef .. y =e= Sum(p, a(p)*Power(x,Ord(p)-1));
+   zDef .. z =e= Log(y);
+x lies in the interval 1 to 10 which means that y will be between 211 and 96441 and Z will be between 5.35 and 11.47. Both x and z are reasonably scaled while y and the terms and derivatives in yDef are about a factor 1.e4 too large. Scaling y by 1.e4 and renaming it ys gives the following scaled version of the model fragment:
+
+   yDefs1 .. ys =e= Sum(p, a(p)*Power(x,Ord(p)-1))*1.e-4;
+   zDefs1 .. z  =e= Log(ys*1.e4);
+The z equation can also be written as
+
+   zDefs2 .. z  =e= Log(ys) + Log(1.e4);
+Note that the scale factor 1.e-4 in the yDefs1 equation has been placed on the right hand side. The mathematically equivalent equation
+
+   yDefs2 .. ys*1.e4 =e= Sum(p, a(p)*Power(x,Ord(p)-1));
+will give a well scaled YS, but the right hand side terms of the equation and their derivatives have not changed from the original equation yDef and they are still far too large.
+
+
+Using the Scale Option in GAMS
+The rules for good scaling mentioned above are exclusively based on algorithmic needs. GAMS has been developed to improve the effectiveness of modelers, and one of the best ways seems to be to encourage modelers to write their models using a notation that is as "natural" as possible. The units of measurement is one part of this natural notation, and there is unfortunately often a conflict between what the modeler thinks is a good unit and what constitutes a well scaled model.
+
+To facilitate the translation between a natural model and a well scaled model GAMS has introduced the concept of a scale factor, both for variables and equations. The notation and the definitions are quite simple. First of all, scaling is by default turned off. To turn it on, enter the statement <model>.ScaleOpt = 1; in your GAMS program somewhere after the Model statement and before the Solve statement. <model> is the name of the model to be solved. If you want to turn scaling off again, enter the statement <model>.ScaleOpt = 0; somewhere before the next Solve.
+
+The scale factor of a variable or an equation is referenced with the suffix ".Scale", i.e. the scale factor of variable x(i) is referenced as x.Scale(i). Note that there is one scale value for each individual component of a multidimensional variable or equation. Scale factors can be defined in assignment statements with x.Scale(i) on the left hand side, and scale factors, both from variables and equations, can be used on the right hand side, for example to define other scale factors. The default scale factor is always 1, and a scale factor must be positive; GAMS will generate an execution time error if the scale factor is less than 1.e-20.
+
+The mathematical definition of scale factors is a follows: The scale factor on a variable,  is used to related the variable as seen by the modeler, , to the variable as seen by the algorithm, , as follows:
+
+This means, that if the variable scale, , is chosen to represent the order of magnitude of the modeler's variable, , then the variable seen by the algorithm, , will be around 1. The scale factor on an equation, , is used to related the equation as seen by the modeler, , to the equation as seen by the algorithm, , as follows:
+
+This means, that if the equation scale, , is chosen to represent the order of magnitude of the individual terms in the modelers version of the equation, , then the terms seen by the algorithm, , will be around 1.
+
+The derivatives in the scaled model seen by the algorithm, i.e. , are related to the derivatives in the modelers model, , through the formula:
+
+i.e. the modelers derivative is multiplied by the scale factor of the variable and divided by the scale factor of the equation. Note, that the derivative is unchanged if . Therefore, if you have a GAMS equation like
+
+   G .. V =e= expression;
+and you select  then the derivative of  will remain 1. If we apply these rules to the example above with an intermediate variable we can get the following automatic scale calculation, based on an "average" reference value for :
+
+   Scalar xRef; xRef = 6;
+   y.Scale = Sum(p, a(p)*Power(xRef,Ord(p)-1));
+   yDef.Scale = y.Scale;
+or we could scale  using values at the end of the  interval and add safeguards as follows:
+
+   y.Scale = Max( Abs(Sum(p, a(p)*Power(x.Lo,Ord(p)-1))),
+                  Abs(Sum(p, a(p)*Power(x.Up,Ord(p)-1))),
+                  0.01 );
+Lower and upper bounds on variables are automatically scaled in the same way as the variable itself. Integer and binary variables cannot be scaled.
+
+GAMS' scaling is in most respects hidden for the modeler. The solution values reported back from a solution algorithm, both primal and dual, are always reported in the user's notation. The algorithm's versions of the equations and variables are only reflected in the derivatives in the equation and column listings in the GAMS output if Option LimRow and/or LimCol are positive, and in debugging output from the solution algorithm, generated with Option SysOut = On. In addition, the numbers in the algorithms iteration log will represent the scaled model: the infeasibilities and reduced gradients will correspond to the scaled model, and if the objective variable is scaled, the value of the objective function will be the scaled value.
+
+A final warning about scaling of multidimensional variables is appropriate. Assume variable x(i,j,k) only appears in the model when the parameter ijk(i,j,k) is nonzero, and assume that Card(i) = Card(j) = Card(k) = 100 while Card(ijk) is much smaller than 100**2 = 1.e6. Then you should only scale the variables that appear in the model, i.e.
+
+   x.Scale(i,j,k)$ijk(i,j,k) = expression;
+The statement
+
+   x.Scale(i,j,k) = expression;
+will generate records for x in the GAMS database for all combinations of i, j, and k for which the expression is different from 1, i.e. up to 1.e6 records, and apart from spending a lot of time you will very likely run out of memory. Note that this warning also applies to non-default lower and upper bounds.
 
 
 
