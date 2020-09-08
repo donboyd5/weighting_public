@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ChangeListManager">
+    <list default="true" id="d17f8567-eece-4b4d-bf08-75576872c3d9" name="Default Changelist" comment="">
+      <change beforePath="$PROJECT_DIR$/.spyproject/config/workspace.ini" beforeDir="false" afterPath="$PROJECT_DIR$/.spyproject/config/workspace.ini" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/experimental_code/test_microweight.py" beforeDir="false" afterPath="$PROJECT_DIR$/experimental_code/test_microweight.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/microweight/__init__.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/microweight/geoweight.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/microweight/make_test_problems.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/microweight/microweight.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/microweight/reweight_class.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/mynotes/python_notes.txt" beforeDir="false" afterPath="$PROJECT_DIR$/mynotes/python_notes.txt" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="JupyterTrust" id="99670bbd-3e16-4e96-bc0c-830d8677da29" />
+  <component name="ProjectId" id="1hDztcojuQqjxs3Y9dtIgtH9xTc" />
+  <component name="ProjectLevelVcsManager" settingsEditedManually="true" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent">
+    <property name="RunOnceActivity.OpenProjectViewOnStart" value="true" />
+    <property name="WebServerToolWindowFactoryState" value="false" />
+    <property name="last_opened_file_path" value="$PROJECT_DIR$" />
+  </component>
+  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="d17f8567-eece-4b4d-bf08-75576872c3d9" name="Default Changelist" comment="" />
+      <created>1599560668786</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1599560668786</updated>
+      <workItem from="1599560674166" duration="58000" />
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+</project>

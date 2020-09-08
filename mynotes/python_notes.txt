@@ -53,6 +53,8 @@ print(microweight.microweight.__doc__)
 
 ### docstrings
 https://www.python.org/dev/peps/pep-0257/
+https://numpydoc.readthedocs.io/en/latest/format.html  numpy style
+https://sphinxcontrib-napoleon.readthedocs.io/en/latest/example_google.html google style examples
 
 A docstring is a string literal that occurs as the first statement in a module, function, class, or method definition. Such a docstring becomes the __doc__ special attribute of that object.
 
@@ -68,6 +70,7 @@ Example:
 	    """Do X and return a list."""
 
 #### Multi-line docstrings
+##### Examples
 Multi-line docstrings consist of a summary line just like a one-line docstring, followed by a blank line, followed by a more elaborate description. The summary line may be used by automatic indexing tools; it is important that it fits on one line and is separated from the rest of the docstring by a blank line. 
 
 Example:

@@ -5,6 +5,12 @@ Created on Sat Aug 29 05:16:40 2020
 @author: donbo
 """
 
+# %% notes
+# TODO
+#   classes within classes; memory management
+#   weight objective by size of weight
+
+
 # %% imports
 from __future__ import print_function, unicode_literals
 import os
@@ -24,8 +30,9 @@ from matplotlib.ticker import PercentFormatter
 
 import ipopt
 
-import microweight.microweight as mw
-import microweight.make_test_problems as mtp
+import src.microweight as mw
+import src.make_test_problems as mtp
+import src.reweight as rw
 
 
 # %% test geoweight problems of arbitrary size
@@ -902,6 +909,98 @@ ccnz = cc[row, col]
 ccnz.size
 cc.size
 
+
+# %% test Reweight class
+
+p = mtp.Problem(h=10, s=1, k=2)
+p = mtp.Problem(h=100, s=1, k=4)
+p = mtp.Problem(h=3000, s=1, k=10)
+p = mtp.Problem(h=30000, s=1, k=20)
+p = mtp.Problem(h=100000, s=1, k=25)
+p = mtp.Problem(h=300000, s=1, k=30)
+p = mtp.Problem(h=500000, s=1, k=50)
+p = mtp.Problem(h=1000000, s=1, k=100)
+
+p.wh
+p.xmat
+cc = p.xmat * p.wh[:, None]  # multiply each column of xmat by wh
+# get multiplicative scaling factors - make avg derivative 1 (or other goal)
+ccgoal = 1
+# use mean or median as the denominator
+denom = ccgoal / (cc.sum(axis=0) / cc.shape[0])  # mean
+# denom = np.median(cc, axis = 0)
+ccscale = np.absolute(ccgoal / denom)
+cc = cc * ccscale  # mult by scale to have avg derivative meet our goal
+
+
+p.targets
+seed(1)
+r = np.random.randn(p.targets.size) / 50  # random normal
+q = [0, .01, .05, .1, .25, .5, .75, .9, .95, .99, 1]
+np.quantile(r, q)
+targets = (p.targets * (1 + r)).flatten()
+targets = targets * ccscale
+targets
+
+# x0 = np.ones(p.xmat.shape[0]) * 1.035
+x0 = np.ones(p.xmat.shape[0])
+lb = np.full(x0.size, 0.1)
+ub = np.full(x0.size, 100)
+cl = targets * .97
+cu = targets * 1.03
+
+myobj = rw.Reweight(cc)
+myobj.constraints(x0)
+cl
+cu
+
+nlp = ipopt.problem(
+            n=len(x0),
+            m=len(cl),
+            problem_obj=myobj,  # Rw1(cc)
+            lb=lb,
+            ub=ub,
+            cl=cl,
+            cu=cu
+            )
+
+nlp.addOption('file_print_level', 6)
+outfile = 'test.out'
+if os.path.exists(outfile):
+    os.remove(outfile)
+nlp.addOption('output_file', outfile)
+
+# nlp.addOption('mu_strategy', 'adaptive')
+# nlp.addOption('mehrotra_algorithm', 'yes')
+
+nlp.addOption('jac_d_constant', 'yes')
+nlp.addOption('hessian_constant', 'yes')
+nlp.addOption('max_iter', 100)
+
+# nlp.addOption('tol', 1e-7)
+
+xtest = np.full(x0.size, 1.15)
+objbase = myobj.objective(xtest)
+objbase
+objgoal = 10
+objscale = objgoal / objbase
+objscale = objscale.item()
+objscale
+nlp.addOption('obj_scaling_factor', objscale)  # multiplier
+# nlp.addOption('obj_scaling_factor', .01)
+
+outfile = 'test2.out'
+if os.path.exists(outfile):
+    os.remove(outfile)
+nlp.addOption('output_file', outfile)
+
+x, info = nlp.solve(x0)
+
+myobj.constraints(x) / targets * 100 - 100
+np.quantile(x, q)
+np.quantile(x, [.5, .9, .97, .98, .981, .982, .985, .99, .995, 1])
+
+n, bins, patches = plt.hist(x, 100, density=True, facecolor='g', alpha=0.75)
 
 
 # %% other stuff

@@ -6,5 +6,5 @@ save_non_project_files = False
 
 [main]
 version = 0.2.0
-recent_files = ['docker\\djb_cyipopt.py', 'experimental_code\\test_NLP.py', 'experimental_code\\test_microweight.py', 'experimental_code\\djb_test_cyipopt.py', 'microweight\\reweight_class.py']
+recent_files = ['docker\\djb_cyipopt.py', 'experimental_code\\test_NLP.py', 'experimental_code\\test_microweight.py', 'src\\reweight.py', 'experimental_code\\djb_test_cyipopt.py']
 
