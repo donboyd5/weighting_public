@@ -1,34 +1,138 @@
 # -*- coding: utf-8 -*-
 """
 Reweight class
+  https://pythonhosted.org/ipopt/reference.html#reference
 
 @author: donbo
 """
 
 from __future__ import print_function, unicode_literals
+import os
 import numpy as np
+import ipopt
 
 
-class Reweight(object):
+class Reweight(ipopt.problem):
     """
     Class for reweighting microdata file.
 
     More documentation here.
     """
 
-    def __init__(self, cc):
+    def __init__(self, wh, xmat, targets):
         """Define values needed on initialization."""
-        self.cc = cc
-        self.n = cc.shape[0]
-        self.m = cc.shape[1]
+        self._wh = wh
+        self._xmat = xmat
+        self._targets = targets
+        self._n = xmat.shape[0]
+        self._m = xmat.shape[1]
+
+    def reweight(self):
+        """
+
+
+        Returns
+        -------
+        x : TYPE
+            DESCRIPTION.
+        info : TYPE
+            DESCRIPTION.
+
+        """
+        # call the solver
+        # https://pythonhosted.org/ipopt/reference.html#reference
+        # constraint coefficients (constant)
+        cc = self._xmat * self._wh[:, None]
+
+        # create multiplicative scaling vector ccscale, for scaling
+        # the constraint coefficients and the targets
+        ccgoal = 1
+        # use mean or median as the denominator
+        denom = ccgoal / (cc.sum(axis=0) / cc.shape[0])  # mean
+        # denom = np.median(cc, axis = 0)
+        ccscale = np.absolute(ccgoal / denom)
+
+        cc = cc * ccscale  # mult by scale to have avg derivative meet our goal
+        targets = self._targets * ccscale
+
+        # x vector: starting values and lower and upper bounds
+        x0 = np.ones(self._n)
+        lb = np.full(self._n, 0.1)
+        ub = np.full(self._n, 100)
+
+        # constraint lower and upper bounds
+        cl = targets * .97
+        cu = targets * 1.03
+
+        rwobject = Reweight_callbacks(cc)
+
+        nlp = ipopt.problem(
+            n=self._n,
+            m=self._m,
+            problem_obj=rwobject,
+            lb=lb,
+            ub=ub,
+            cl=cl,
+            cu=cu)
+
+        # nlp.addOption('file_print_level', 6)
+        # outfile = 'test.out'
+        # if os.path.exists(outfile):
+        #     os.remove(outfile)
+        # nlp.addOption('output_file', outfile)
+        nlp.addOption('jac_d_constant', 'yes')
+        nlp.addOption('hessian_constant', 'yes')
+        nlp.addOption('max_iter', 100)
+
+        xtest = np.full(x0.size, 1.15)
+        objbase = rwobject.objective(xtest)
+        # objbase
+        objgoal = 10
+        objscale = objgoal / objbase
+        objscale = objscale.item()
+        nlp.addOption('obj_scaling_factor', objscale)  # multiplier
+
+        x, info = nlp.solve(x0)
+
+        return x, info
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+class Reweight_callbacks(object):
+    """
+    Must have:
+        objective
+        constraints
+        gradient
+        jacobian
+        jacobianstructure
+        hessian
+        hessianstructure
+        intermediate
+    """
+    def __init__(self, cc):
+        self._cc = cc
+        self._n = cc.shape[0]
+        self._m = cc.shape[1]
 
     def objective(self, x):
         """Calculate objective function."""
         return np.sum((x - 1)**2)
-
-    def gradient(self, x):
-        """Calculate gradient of objective function."""
-        return 2 * x - 2
 
     def constraints(self, x):
         """
@@ -45,7 +149,12 @@ class Reweight(object):
             DESCRIPTION.
 
         """
-        return np.dot(x, self.cc)
+        return np.dot(x, self._cc)
+
+    def gradient(self, x):
+        """Calculate gradient of objective function."""
+        return 2 * x - 2
+
 
     def jacobian(self, x):
         """
@@ -63,7 +172,7 @@ class Reweight(object):
 
         """
         row, col = self.jacobianstructure()
-        return self.cc.T[row, col]
+        return self._cc.T[row, col]
 
     def jacobianstructure(self):
         """
@@ -75,7 +184,7 @@ class Reweight(object):
             DESCRIPTION.
 
         """
-        return np.nonzero(self.cc.T)
+        return np.nonzero(self._cc.T)
 
     def hessian(self, x, lagrange, obj_factor):
         """
@@ -103,7 +212,7 @@ class Reweight(object):
             DESCRIPTION.
 
         """
-        H = np.full(self.n, 2) * obj_factor
+        H = np.full(self._n, 2) * obj_factor
         return H
 
     def hessianstructure(self):
@@ -132,7 +241,7 @@ class Reweight(object):
             Second array has column indexes for these elements.
 
         """
-        hidx = np.arange(0, self.n, dtype='int64')
+        hidx = np.arange(0, self._n, dtype='int64')
         hstruct = (hidx, hidx)
         return hstruct
 
