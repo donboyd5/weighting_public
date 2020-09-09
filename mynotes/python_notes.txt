@@ -133,6 +133,10 @@ https://list.coin-or.org/pipermail/ipopt/2011-September/002601.html
 https://github.com/matthias-k/cyipopt/issues/70
 https://github.com/casadi/testbot/blob/trusty-pinned/recipes/mingw64_coinhsl.sh
 
+https://mdolab-pyoptsparse.readthedocs-hosted.com/en/latest/optimizers/pyipopt.html
+https://github.com/mdolab/pyoptsparse
+http://mumps.enseeiht.fr/doc/userguide_5.3.3.pdf  Mumps manual
+
 ## preparation:
 
 	Review cyipopt site

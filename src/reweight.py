@@ -27,9 +27,26 @@ class Reweight(ipopt.problem):
         self._n = xmat.shape[0]
         self._m = xmat.shape[1]
 
-    def reweight(self):
-        """
+    def reweight(self,
+                 xlb=0.1,
+                 xub=100,
+                 crange=.03,
+                 max_iter=100,
+                 ccgoal=1,
+                 objgoal=100,
+                 quiet=True):
+        r"""
+        Build and solve the reweighting NLP.
 
+        Good general settings seem to be:
+            get_ccscale - use ccgoal=1, method='mean'
+            get_objscale - use xbase=1.2, objgoal=100
+            no other options set, besides obvious ones
+
+        Important resources:
+            https://pythonhosted.org/ipopt/reference.html#reference
+            https://coin-or.github.io/Ipopt/OPTIONS.html
+            ..\cyipopt\ipopt\ipopt_wrapper.py to see code from cyipopt author
 
         Returns
         -------
@@ -39,76 +56,120 @@ class Reweight(ipopt.problem):
             DESCRIPTION.
 
         """
-        # call the solver
-        # https://pythonhosted.org/ipopt/reference.html#reference
         # constraint coefficients (constant)
         cc = self._xmat * self._wh[:, None]
 
-        # create multiplicative scaling vector ccscale, for scaling
-        # the constraint coefficients and the targets
-        ccgoal = 1
-        # use mean or median as the denominator
-        denom = ccgoal / (cc.sum(axis=0) / cc.shape[0])  # mean
-        # denom = np.median(cc, axis = 0)
-        ccscale = np.absolute(ccgoal / denom)
-
+        # scale constraint coefficients and targets
+        ccscale = self.get_ccscale(cc, ccgoal=ccgoal, method='mean')
+        # ccscale = 1
         cc = cc * ccscale  # mult by scale to have avg derivative meet our goal
         targets = self._targets * ccscale
 
-        # x vector: starting values and lower and upper bounds
+        # IMPORTANT: define callbacks AFTER we have scaled cc and targets
+        # because callbacks must be initialized with scaled cc
+        self.callbacks = Reweight_callbacks(cc, quiet)
+
+        # x vector starting values, and lower and upper bounds
         x0 = np.ones(self._n)
-        lb = np.full(self._n, 0.1)
-        ub = np.full(self._n, 100)
+        lb = np.full(self._n, xlb)
+        ub = np.full(self._n, xub)
 
         # constraint lower and upper bounds
-        cl = targets * .97
-        cu = targets * 1.03
-
-        rwobject = Reweight_callbacks(cc)
+        cl = targets - abs(targets) * crange
+        cu = targets + abs(targets) * crange
 
         nlp = ipopt.problem(
             n=self._n,
             m=self._m,
-            problem_obj=rwobject,
+            problem_obj=self.callbacks,
             lb=lb,
             ub=ub,
             cl=cl,
             cu=cu)
 
-        # nlp.addOption('file_print_level', 6)
-        # outfile = 'test.out'
-        # if os.path.exists(outfile):
-        #     os.remove(outfile)
-        # nlp.addOption('output_file', outfile)
-        nlp.addOption('jac_d_constant', 'yes')
-        nlp.addOption('hessian_constant', 'yes')
-        nlp.addOption('max_iter', 100)
-
-        xtest = np.full(x0.size, 1.15)
-        objbase = rwobject.objective(xtest)
-        # objbase
-        objgoal = 10
-        objscale = objgoal / objbase
-        objscale = objscale.item()
+        # objective function scaling
+        objscale = self.get_objscale(objgoal=objgoal, xbase=1.2)
+        # print(objscale)
         nlp.addOption('obj_scaling_factor', objscale)  # multiplier
 
-        x, info = nlp.solve(x0)
+        # define additional options as a dict
+        opts = {
+            'print_level': 5,
+            'file_print_level': 6,
+            'jac_d_constant': 'yes',
+            'hessian_constant': 'yes',
+            'max_iter': max_iter,
+            'mumps_mem_percent': 100,  # default 1000
+            'linear_solver': 'mumps',
+            }
 
+        # TODO: check against already set options, etc. see ipopt_wrapper.py
+        for option, value in opts.items():
+            nlp.addOption(option, value)
+
+        outfile = 'test3.out'
+        if os.path.exists(outfile):
+            os.remove(outfile)
+        nlp.addOption('output_file', outfile)
+        # nlp.addOption('derivative_test', 'first-order')  # second-order
+
+        # nlp_scaling_method: default gradient-based
+        # equilibration-based needs MC19
+        # nlp.addOption('nlp_scaling_method', 'equilibration-based')
+        # nlp.addOption('nlp_scaling_max_gradient', 1e-4)  # 100 default
+        # nlp.addOption('mu_strategy', 'adaptive')  # not good
+        # nlp.addOption('mehrotra_algorithm', 'yes')  # not good
+        # nlp.addOption('mumps_mem_percent', 100)  # default 1000
+        # nlp.addOption('mumps_pivtol', 1e-4)  # default 1e-6; 1e-2 is SLOW
+        # nlp.addOption('mumps_scaling', 8)  # 77 default
+
+        x, info = nlp.solve(x0)
         return x, info
 
+    def get_ccscale(self, cc, ccgoal, method='mean'):
+        """
+        Create multiplicative scaling vector ccscale.
 
+        For scaling the constraint coefficients and the targets.
 
+        Parameters
+        ----------
+        ccgoal : TYPE
+            DESCRIPTION.
+        method : TYPE, optional
+            DESCRIPTION. The default is 'mean'.
 
+        Returns
+        -------
+        ccscale vector.
 
+        """
+        # use mean or median as the denominator
+        if(method == 'mean'):
+            denom = cc.sum(axis=0) / cc.shape[0]
+        elif(method == 'median'):
+            denom = np.median(cc, axis=0)
 
+        ccscale = np.absolute(ccgoal / denom)
+        return ccscale
 
+    def get_objscale(self, objgoal, xbase):
+        """
+        Calculate objective scaling factor.
 
+        Returns
+        -------
+        objscale : TYPE
+            DESCRIPTION.
 
-
-
-
-
-
+        """
+        xbase = np.full(self._n, xbase)
+        objbase = self.callbacks.objective(xbase)
+        objscale = objgoal / objbase
+        # convert to python float from Numpy float as that is what
+        # cyipopt requires
+        objscale = objscale.item()
+        return objscale
 
 
 
@@ -125,10 +186,11 @@ class Reweight_callbacks(object):
         hessianstructure
         intermediate
     """
-    def __init__(self, cc):
+    def __init__(self, cc, quiet):
         self._cc = cc
         self._n = cc.shape[0]
         self._m = cc.shape[1]
+        self._quiet = quiet
 
     def objective(self, x):
         """Calculate objective function."""
@@ -294,4 +356,6 @@ class Reweight_callbacks(object):
         """
         # print("Objective value at iteration #%d is - %g"
         #     % (iter_count, obj_value))
-        print("Iter, obj, infeas #%d %g %g" % (iter_count, obj_value, inf_pr))
+        if(not self._quiet):
+            print("Iter, obj, infeas #%d %g %g"
+                  % (iter_count, obj_value, inf_pr))

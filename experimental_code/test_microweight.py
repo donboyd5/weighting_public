@@ -912,11 +912,19 @@ cc.size
 
 # %% test Reweight class
 
+def constraints(x):
+    return np.dot(x * p.wh, p.xmat)
+
+
 p = mtp.Problem(h=10, s=1, k=2)
-p = mtp.Problem(h=100, s=1, k=4)
+p = mtp.Problem(h=200, s=1, k=4)
+p = mtp.Problem(h=500, s=1, k=5)
+p = mtp.Problem(h=1000, s=1, k=6)
 p = mtp.Problem(h=3000, s=1, k=10)
 p = mtp.Problem(h=30000, s=1, k=20)
+p = mtp.Problem(h=100000, s=1, k=5)
 p = mtp.Problem(h=100000, s=1, k=25)
+p = mtp.Problem(h=300000, s=1, k=10)
 p = mtp.Problem(h=300000, s=1, k=30)
 p = mtp.Problem(h=500000, s=1, k=50)
 p = mtp.Problem(h=1000000, s=1, k=100)
@@ -928,17 +936,39 @@ q = [0, .01, .05, .1, .25, .5, .75, .9, .95, .99, 1]
 np.quantile(r, q)
 targets = (p.targets * (1 + r)).flatten()
 
+x0 = np.ones(p.wh.size)
+t0 = constraints(x0)
+pdiff0 = t0 / targets * 100 - 100
+pdiff0
+
 rwp = rw.Reweight(p.wh, p.xmat, targets)
+x, info = rwp.reweight(xlb=0.1, xub=10,
+                       crange=.0325,
+                       ccgoal=10, objgoal=100,
+                       max_iter=50)
 
-x, info = rwp.reweight()
+np.quantile(x, [0, .1, .25, .5, .75, .9, 1])
 
-# x, info = nlp.solve(x0)
+t1 = constraints(x)
+pdiff1 = t1 / targets * 100 - 100
+pdiff1
 
-myobj.constraints(x) / targets * 100 - 100
+pdiff0
+pdiff1 - pdiff0
+n, bins, patches = plt.hist(x, 100, density=True, facecolor='g', alpha=0.75)
+
+np.quantile(x, [0, .1, .25, .5, .75, .9, 1])
+np.quantile(p.wh, [0, .1, .25, .5, .75, .9, 1])
+x0.sum()
+x.sum()
+
+constraints(x0)
+constraints(x)
+
 np.quantile(x, q)
 np.quantile(x, [.5, .9, .97, .98, .981, .982, .985, .99, .995, 1])
 
-n, bins, patches = plt.hist(x, 100, density=True, facecolor='g', alpha=0.75)
+
 
 
 # %% other stuff
