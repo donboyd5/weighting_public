@@ -7,8 +7,8 @@ Created on Sat Aug 29 05:16:40 2020
 
 # %% imports
 import numpy as np
-import microweight.geoweight as gw
-import microweight.make_test_problems as mtp
+import src.geoweight as gw
+import src.make_test_problems as mtp
 
 
 # %% test problems of arbitrary size
@@ -37,6 +37,7 @@ g1.geoweight()
 
 # examine results
 g1.elapsed_minutes
+dir(g1)
 g1.result  # this is the result returned by the solver
 dir(g1.result)
 g1.result.cost  # objective function value at optimum
@@ -46,7 +47,7 @@ g1.result.message
 g1.beta_opt  # beta coefficients, s x k
 g1.delta_opt  # delta constants, 1 x h
 g1.whs_opt  # state weights
-g1.targets_opt
+g1.geotargets_opt
 
 # ensure that results are correct
 # did we hit targets? % differences:
