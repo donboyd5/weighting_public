@@ -61,6 +61,7 @@ class Reweight(ipopt.problem):
 
         # scale constraint coefficients and targets
         ccscale = self.get_ccscale(cc, ccgoal=ccgoal, method='mean')
+        # print(ccscale)
         # ccscale = 1
         cc = cc * ccscale  # mult by scale to have avg derivative meet our goal
         targets = self._targets * ccscale
@@ -95,7 +96,7 @@ class Reweight(ipopt.problem):
         # define additional options as a dict
         opts = {
             'print_level': 5,
-            'file_print_level': 6,
+            'file_print_level': 5,
             'jac_d_constant': 'yes',
             'hessian_constant': 'yes',
             'max_iter': max_iter,
@@ -107,7 +108,7 @@ class Reweight(ipopt.problem):
         for option, value in opts.items():
             nlp.addOption(option, value)
 
-        outfile = 'test3.out'
+        outfile = 'test4.out'
         if os.path.exists(outfile):
             os.remove(outfile)
         nlp.addOption('output_file', outfile)
@@ -151,6 +152,7 @@ class Reweight(ipopt.problem):
             denom = np.median(cc, axis=0)
 
         ccscale = np.absolute(ccgoal / denom)
+        # ccscale = ccscale / ccscale
         return ccscale
 
     def get_objscale(self, objgoal, xbase):
@@ -169,6 +171,7 @@ class Reweight(ipopt.problem):
         # convert to python float from Numpy float as that is what
         # cyipopt requires
         objscale = objscale.item()
+        # print(objscale)
         return objscale
 
 

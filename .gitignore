@@ -1,0 +1,6 @@
+ignore/
+data/
+*.out
+*.csv
+*.xls*
+

@@ -51,7 +51,7 @@ g1.geotargets_opt
 
 # ensure that results are correct
 # did we hit targets? % differences:
-pdiff = (g1.targets_opt - g1.targets) / g1.targets * 100
+pdiff = (g1.geotargets_opt - g1.geotargets) / g1.geotargets * 100
 pdiff
 np.square(pdiff).sum()  # would like it to be approx zero
 

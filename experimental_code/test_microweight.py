@@ -924,6 +924,7 @@ p = mtp.Problem(h=3000, s=1, k=10)
 p = mtp.Problem(h=30000, s=1, k=20)
 p = mtp.Problem(h=100000, s=1, k=5)
 p = mtp.Problem(h=100000, s=1, k=25)
+p = mtp.Problem(h=100000, s=1, k=35)
 p = mtp.Problem(h=300000, s=1, k=10)
 p = mtp.Problem(h=300000, s=1, k=30)
 p = mtp.Problem(h=500000, s=1, k=50)
@@ -931,7 +932,7 @@ p = mtp.Problem(h=1000000, s=1, k=100)
 
 
 seed(1)
-r = np.random.randn(p.targets.size) / 50  # random normal
+r = np.random.randn(p.targets.size) / 100  # random normal
 q = [0, .01, .05, .1, .25, .5, .75, .9, .95, .99, 1]
 np.quantile(r, q)
 targets = (p.targets * (1 + r)).flatten()
@@ -943,7 +944,7 @@ pdiff0
 
 rwp = rw.Reweight(p.wh, p.xmat, targets)
 x, info = rwp.reweight(xlb=0.1, xub=10,
-                       crange=.0325,
+                       crange=.01,
                        ccgoal=10, objgoal=100,
                        max_iter=50)
 
@@ -961,6 +962,22 @@ np.quantile(x, [0, .1, .25, .5, .75, .9, 1])
 np.quantile(p.wh, [0, .1, .25, .5, .75, .9, 1])
 x0.sum()
 x.sum()
+
+# save a difficult problem to csv files
+# we need p.wh, p.xmat, targets
+# x, info = rwp.reweight(xlb=0.1, xub=10,
+#                        crange=.02,
+#                        ccgoal=10, objgoal=100,
+#                        max_iter=100)
+whdf = pd.DataFrame(data=p.wh, columns=["wh"])
+whdf.to_csv("wh.csv", index=False)
+
+xmatdf = pd.DataFrame(data=p.xmat, columns=range(1, p.k + 1))
+xmatdf = xmatdf.add_prefix('x')
+xmatdf.to_csv("xmat.csv", index=False)
+
+targetsdf = pd.DataFrame(data=targets, columns=['target'])
+targetsdf.to_csv('targets.csv', index=False)
 
 constraints(x0)
 constraints(x)
