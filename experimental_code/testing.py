@@ -53,6 +53,8 @@ g1.geotargets_opt
 # did we hit targets? % differences:
 pdiff = (g1.geotargets_opt - g1.geotargets) / g1.geotargets * 100
 pdiff
+# with default diff weights g1.result.fun also will show percent differences
+g1.result.fun
 np.square(pdiff).sum()  # would like it to be approx zero
 
 # do state weights sum to national weights for every household?

@@ -6,5 +6,5 @@ save_non_project_files = False
 
 [main]
 version = 0.2.0
-recent_files = ['experimental_code\\test_microweight.py', 'src\\reweight.py']
+recent_files = ['experimental_code\\test_microweight.py', 'src\\reweight.py', '.gitignore', 'src\\geoweight.py', 'experimental_code\\testing.py', 'puf\\puf_download_national_target_files.py', 'puf\\puf_reweight.py']
 

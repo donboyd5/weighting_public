@@ -944,9 +944,10 @@ pdiff0
 
 rwp = rw.Reweight(p.wh, p.xmat, targets)
 x, info = rwp.reweight(xlb=0.1, xub=10,
-                       crange=.01,
+                       crange=.015,
                        ccgoal=10, objgoal=100,
                        max_iter=50)
+info['status_msg']
 
 np.quantile(x, [0, .1, .25, .5, .75, .9, 1])
 

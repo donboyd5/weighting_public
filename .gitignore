@@ -3,4 +3,5 @@ data/
 *.out
 *.csv
 *.xls*
+*.h5
 
