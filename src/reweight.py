@@ -22,6 +22,7 @@ class Reweight(ipopt.problem):
     def __init__(self, wh, xmat, targets):
         """Define values needed on initialization."""
         self._wh = wh
+        # self._wh = np.array(wh)
         self._xmat = xmat
         self._targets = targets
         self._n = xmat.shape[0]
@@ -57,7 +58,9 @@ class Reweight(ipopt.problem):
 
         """
         # constraint coefficients (constant)
-        cc = self._xmat * self._wh[:, None]
+        # cc = self._xmat * self._wh[:, None]
+        # cc = self._xmat * self._wh
+        cc = (self._xmat.T * self._wh).T
 
         # scale constraint coefficients and targets
         ccscale = self.get_ccscale(cc, ccgoal=ccgoal, method='mean')
