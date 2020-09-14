@@ -1,7 +1,5 @@
 ignore/
-data/
+puf/ignore/
+puf/downloads/
 *.out
-*.csv
-*.xls*
 *.h5
-

@@ -7,7 +7,6 @@ Created on Sat Sep 12 09:51:44 2020
 # %% imports
 import requests
 import pandas as pd
-# import ipopt
 
 
 # %% constants
@@ -27,6 +26,11 @@ PUFDIR = 'C:/programs_python/weighting/puf/'
 #  Table 1.1 Selected Income and Tax Items
 #  By Size and Accumulated Size of Adjusted Gross Income
 TAB11 = '18in11si.xls'
+TAB11d = {'src': '18in11si.xls',
+          'firstrow': 10,
+          'lastrow': 29,
+          'cols': 'A, B, D, K, L',
+          'colnames': ['incrange', 'nret_all', 'agi', 'nret_ti', 'ti']}
 
 #  Table 1.2 Adjusted Gross Income, Exemptions, Deductions, and Tax Items
 #  By Size of Adjusted Gross Income and Marital Status
@@ -77,11 +81,15 @@ for f in files:
 
 
 # %% xlrange
-def xlrange(io, firstrow=1, lastrow=None, usecols=None, colnames=None):
+def xlrange(io, sheet_name=0,
+            firstrow=1, lastrow=None,
+            usecols=None, colnames=None):
     # firstrow and lastrow are 1-based
     if colnames is None:
         if usecols is None:
             colnames = None
+        elif isinstance(usecols, list):
+            colnames = usecols
         else:
             colnames = usecols.split(',')
     nrows = None
@@ -98,33 +106,60 @@ def xlrange(io, firstrow=1, lastrow=None, usecols=None, colnames=None):
 
 # %% parse and save important file contents
 # https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.read_excel.html
-files
 
+# get the names and info for tables we want data from
+fn = r'C:\programs_python\weighting\puf\data\soitables.xlsx'
+tabs = pd.read_excel(io=fn, sheet_name='national')
+tabmaps = pd.read_excel(io=fn, sheet_name='tablemaps')
 
+# loop through the tables listed in tabs
+tab = 'tab12'
+tablist = []
+for tab in tabs.table:
+    # get info describing a specific table
+    tabd = tabs[tabs['table'] == tab]
+    tabinfo = pd.merge(tabd, tabmaps, on='table')
 
+    # get the table data using this info
+    df = xlrange(io=DOWNDIR + tabd.src.values[0],
+                 firstrow=tabd.firstrow.values[0],
+                 lastrow=tabd.lastrow.values[0],
+                 usecols=tabinfo.col.str.cat(sep=", "),
+                 colnames=tabinfo.colname.tolist())
+
+    # add identifiers
+    df['src'] = tabd.src.values[0]
+    df['irsstub'] = df.index
+
+    # melt to long format so that all data frames are in same format
+    dfl = pd.melt(df, id_vars=['src', 'irsstub', 'incrange'])
+
+    # bring table description and column description into the table
+    dfl = pd.merge(dfl,
+                   tabinfo[['colname', 'table_description', 'column_description']],
+                   left_on=['variable'],
+                   right_on=['colname'])
+    dfl = dfl.drop('colname', axis=1)  # colname duplicates variable so drop it
+
+    # add to the list
+    tablist.append(dfl)
+
+targets_all = pd.concat(tablist)
+targets_all.info()
+targets_all.to_csv(DATADIR + 'targets2018.csv', index=False)
+
+# note that we can drop targets not yet identified by dropping those where
+# column_description is NaN (or where len(variable) <= 2)
 
 
 # %% test parsing
-path = DOWNDIR + files[0]
-inccols = 'A, B, D, G, I'
-# incols = 'A:D'
-colnames = ['incrange', 'nagi', 'agi', 'nagi_taxret', 'agi_taxret']
-df = xlrange(path, usecols=inccols, colnames=colnames,
-        firstrow=10, lastrow=29)
 
 # are reported totals close enough to sums of values that we can drop reported?
-df.iloc[1:, 1:].sum()
-df.iloc[0]
-df.iloc[1:, 1:].sum() - df.iloc[0]  # yes
+# df.iloc[1:, 1:].sum()
+# df.iloc[0]
+# df.iloc[1:, 1:].sum() - df.iloc[0]  # yes
 
 # create a mapping of incrange to stubs
-
-
-# %% write results to file
-df.to_csv(DATADIR + 'test.csv', index=False)
-
-
-pd.read_csv(DATADIR + 'test.csv')
 
 
 
