@@ -1,7 +1,5 @@
 # coding: utf-8
 """
-Created on Sun Sep 13 06:33:21 2020
-
   # #!/usr/bin/env python
   See Peter's code here:
       https://github.com/Peter-Metz/state_taxdata/blob/master/state_taxdata/prepdata.py
@@ -11,6 +9,10 @@ Created on Sun Sep 13 06:33:21 2020
       Per Peter latest file is here (8/20/2020 as of 9/13/2020)
       https://www.dropbox.com/s/hyhalpiczay98gz/puf.csv?dl=0
       C:\Users\donbo\Dropbox (Personal)\PUF files\files_based_on_puf2011\2020-08-20
+      # raw string allows Windows-style slashes
+      # r'C:\Users\donbo\Downloads\taxdata_stuff\puf_2017_djb.csv'
+
+https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
 
 @author: donbo
 """
@@ -23,27 +25,12 @@ from bokeh.io import show, output_notebook
 
 import src.reweight as rw
 
-# setup
-# recs = tc.Records() # get the puf, not the cps version
 
 # %% constants
-PUFDIR = 'C:/Users/donbo/Dropbox (Personal)/PUF files/files_based_on_puf2011/'
-INDIR = PUFDIR + '2020-08-13_djb/'  # puf.csv that I created
-# OUTDIR = PUFDIR + 'PUF 2017 Files/'
 DATADIR = 'C:/programs_python/weighting/puf/data/'
-
-# raw string allows Windows-styly slashes
-# r'C:\Users\donbo\Downloads\taxdata_stuff\puf_2017_djb.csv'
-
-# latest version of the puf that I created with taxdata
-PUF_NAME = INDIR + 'puf.csv'
-GF_NAME = INDIR + 'growfactors.csv'
-WEIGHTS_NAME = INDIR + 'puf_weights.csv'
-
-# latest official puf per peter:
-PUF_NAME = r'C:\Users\donbo\Dropbox (Personal)\PUF files\files_based_on_puf2011\2020-08-20\puf.csv'
-
-
+HDFDIR = 'C:/programs_python/weighting/puf/ignore/'
+BASE_NAME = 'puf_adjusted'
+PUF_HDF = HDFDIR + BASE_NAME + '.h5'  # hdf5 is lightning fast
 
 # agi stubs
 # AGI groups to target separately
@@ -53,80 +40,139 @@ HT2_AGI_STUBS = [-9e99, 1.0, 10e3, 25e3, 50e3, 75e3, 100e3,
                  200e3, 500e3, 1e6, 9e99]
 
 
-# %% create objects
-gfactor = tc.GrowFactors(GF_NAME)
-dir(gfactor)
-
-puf = pd.read_csv(PUF_NAME)
-
-recs = tc.Records(data=puf,
-                  start_year=2011,
-                  gfactors=gfactor,
-                  weights=WEIGHTS_NAME,
-                  adjust_ratios=None)  # don't use puf_ratios
-
-# recs = tc.Records(data=mypuf,
-#                   start_year=2011,
-#                   gfactors=gfactor,
-#                   weights=WEIGHTS_NAME)  # apply built-in puf_ratios.csv
-
-# %% advance the file
-pol = tc.Policy()
-calc = tc.Calculator(policy=pol, records=recs)
-CYR = 2018
-calc.advance_to_year(CYR)
-calc.calc_all()
-
-
-# %% create and examine data frame
-puf_2018 = calc.dataframe(variable_list=[], all_vars=True)
-puf_2018['pid'] = np.arange(len(puf_2018))
-
-puf_2018.head(10)
-
-
-# %% save advanced file
-BASE_NAME = 'puf_adjusted'
-
-# hdf5 is lightning fast
-OUT_HDF = DATADIR + BASE_NAME + '.h5'
-# %time puf_2018.to_hdf(OUT_HDF, key='puf_2018', mode='w')
-%time puf_2018.to_hdf(OUT_HDF, 'data')  # 1 sec
-
-# csv is slow, only use if need to share files
-OUT_CSV = DATADIR + BASE_NAME + '.csv'
-%time puf_2018.to_csv(OUT_CSV, index=False)  # 1+ minutes
-# chunksize gives minimal speedup
-# %time puf_2017.to_csv(OUT_NAME, index=False, chunksize=1e6)
-
-
-# read back in
-%time dfcsv = pd.read_csv(OUT_CSV)  # 8 secs
-%time dfhdf = pd.read_hdf(OUT_HDF)  # 1 sec
-dfcsv.tail()
-dfhdf.tail()
+# %% get advanced file
+%time puf_2018 = pd.read_hdf(PUF_HDF)  # 1 sec
 puf_2018.tail()
 
-del(dfcsv)
-del(dfhdf)
 
-# %% examine totals
-IRSDAT = DATADIR + 'test.csv'
+# %% get and prepare targets
+IRSDAT = DATADIR + 'targets2018.csv'
 irstot = pd.read_csv(IRSDAT)
 irstot
+# drop targets for which I haven't yet set column descriptions
+irstot = irstot.dropna(axis=0, subset=['column_description'])
+irstot
+irstot.columns
 
-# %time dfhdf = pd.read_hdf(OUT_HDF)  # 1 sec
+# check counts
+irstot[['src', 'variable', 'value']].groupby(['src', 'variable']).agg(['count'])
+irstot[['variable', 'value']].groupby(['variable']).agg(['count'])  # unique list
 
+# quick check to make sure duplicate variables have same values
+check = irstot[irstot.irsstub == 0][['src', 'variable']]
+idups = check.duplicated(subset='variable', keep=False)
+check[idups].sort_values(['variable', 'src'])
+dupvars = check[idups]['variable'].unique()
+dupvars
+
+# now check values
+keep = (irstot.variable.isin(dupvars)) & (irstot.irsstub==0)
+dups = irstot[keep][['variable', 'src', 'column_description', 'value']]
+dups.sort_values(['variable', 'src'])
+# looks ok - we can select any of the duplicates we want
+
+
+# %% prepare a puf summary for several target variables
 # filter out filers imputed from CPS
-df = puf_2018.copy() # new data frame
-df = df.loc[df["data_source"] == 1] # ~7k records dropped
+df = puf_2018.copy()  # new data frame
+df = df.loc[df["data_source"] == 1]  # ~7k records dropped
+df['IRS_STUB'] = pd.cut(
+    df['c00100'],
+    IRS_AGI_STUBS,
+    labels=list(range(1, len(IRS_AGI_STUBS))),
+    right=False,
+)
+df.columns.sort_values().tolist()  # show all column names
+
+vars = ['agi', 'wages', 'nret_all']
+pufvars = ['pid', 'IRS_STUB', 'c00100', 'e00200', 's006']
+
+df2 = df[pufvars].copy()
+# df2.loc[:, ('nret')] = 1  # need to understand copy
+df2['nret'] = 1
+df2.head()
+
+
+def wsum(grp, sumvars, wtvar):
+    return grp[sumvars].multiply(grp[wtvar], axis=0).sum()
+
+
+df3 = df2.groupby('IRS_STUB').apply(wsum,
+                              sumvars=['nret', 'c00100', 'e00200'],
+                              wtvar='s006')
+
+df3 = df3.append(df3.sum().rename(0)).sort_values('IRS_STUB')
+df3
+
+# %% combine IRS totals and PUF totals and compare
+keep = (irstot.src == '18in14ar.xls') & (irstot.variable.isin(['nret_all', 'agi', 'wages']))
+irscomp = irstot[['irsstub', 'incrange', 'variable', 'value']][keep]
+irscomp = irscomp.rename(columns={'value': 'irs'})
+irscomp['irs'] = pd.Series.astype(irscomp['irs'], 'float')
+irscomp
+irscomp.info()
+
+pufcomp = df3
+pufcomp['irsstub'] = pufcomp.index
+pufcomp = pufcomp.rename(columns={'nret': 'nret_all',
+                                  'c00100': 'agi',
+                                  'e00200': 'wages'})
+pufcomp[['agi', 'wages']] = pufcomp[['agi', 'wages']] / 1e3
+pufcomp = pd.melt(pufcomp, id_vars=['irsstub'], value_name='puf')
+pufcomp
+
+comp = pd.merge(irscomp, pufcomp, on=['irsstub', 'variable'])
+comp['diff'] = comp['puf'] - comp['irs']
+comp['pdiff'] = comp['diff'] / comp['irs'] * 100
+format_mapping = {'irs': '{:,.0f}',
+                  'puf': '{:,.0f}',
+                  'diff': '{:,.0f}',
+                  'pdiff': '{:,.1f}'}
+for key, value in format_mapping.items():
+    comp[key] = comp[key].apply(value.format)
+
+# comp['diffpctagi'] = comp['diff'] / comp[[('irsstub'==0)]]['irs']
+# comp.pdiff = comp.pdiff.round(decimals=1)
+comp
+
+comp[(comp['variable'] == 'nret_all')]
+comp[(comp['variable'] == 'agi')]
+comp[(comp['variable'] == 'wages')]
+
+# compshow = comp[(comp['variable'] == 'nret_all')]
+# compshow.style.format({"irs": "${:20,.0f}"})
+
+# pd.options.display.float_format = '{:,.1f}'.format
+# pd.reset_option('display.float_format')
+
+
+
+# %% misc
+
+df2.pivot_table(index='IRS_STUB',
+               margins=True,
+               margins_name='0',  # defaults to 'All'
+               aggfunc=sum)
+
+# map puf names to irstot variable values
+
 df.info()
 desc = df.describe()
 cols = df.columns
-df.s006.sum() / irstot.iloc[0,].nagi * 100 - 100  # -+1.4%
+
+tmp = irstot.loc[(irstot.src == '18in11si.xls') &
+             (irstot.irsstub == 0) &
+             (irstot.variable == 'nret_all')]
+nret_all = tmp.iloc[0].value
+
+df.s006.sum() / nret_all * 100 - 100  # -+1.4%
+# djb pick up here ----
 
 retcount = df.loc[df['c00100'] >= 10e6].s006.sum()
-irscount = irstot.iloc[19].nagi
+rec = irstot.loc[(irstot.src == '18in11si.xls') &
+                 (irstot.irsstub == 19) &
+                 (irstot.variable == 'nret_all')]
+irscount = rec.iloc[0].value
 retcount / irscount * 100 - 100  # +7%
 
 df["IRS_STUB"] = pd.cut(
@@ -225,4 +271,28 @@ pdiff1
 # "c09600_n": "N09600",  # AMT number
 # "e00700": "A00700",  # SALT amount
 # "e00700_n": "N00700",  # SALT number
+
+    # Maps PUF variable names to HT2 variable names
+VAR_CROSSWALK = {
+    "n1": "N1",  # Total population
+    "mars1_n": "MARS1",  # Single returns number
+    "mars2_n": "MARS2",  # Joint returns number
+    "c00100": "A00100",  # AGI amount
+    "e00200": "A00200",  # Salary and wage amount
+    "e00200_n": "N00200",  # Salary and wage number
+    "c01000": "A01000",  # Capital gains amount
+    "c01000_n": "N01000",  # Capital gains number
+    "c04470": "A04470",  # Itemized deduction amount (0 if standard deduction)
+    "c04470_n": "N04470",  # Itemized deduction number (0 if standard deduction)
+    "c17000": "A17000",  # Medical expenses deducted amount
+    "c17000_n": "N17000",  # Medical expenses deducted number
+    "c04800": "A04800",  # Taxable income amount
+    "c04800_n": "N04800",  # Taxable income number
+    "c05800": "A05800",  # Regular tax before credits amount
+    "c05800_n": "N05800",  # Regular tax before credits amount
+    "c09600": "A09600",  # AMT amount
+    "c09600_n": "N09600",  # AMT number
+    "e00700": "A00700",  # SALT amount
+    "e00700_n": "N00700",  # SALT number
+}
 

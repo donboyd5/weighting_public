@@ -16,7 +16,7 @@ DATADIR = 'C:/programs_python/weighting/puf/data/'
 PUFDIR = 'C:/programs_python/weighting/puf/'
 
 
-# %% IRS Table urls
+# %% ONETIME:  IRS Table urls
 # Main url: https://www.irs.gov/statistics/soi-tax-stats-individual-statistical-tables-by-size-of-adjusted-gross-income
 
 # Tables from SOI Individual Complete Report (Publication 1304)
@@ -68,7 +68,7 @@ TAB32 = '18in32tt.xls'
 files = [TAB11, TAB12, TAB14, TAB14A, TAB16, TAB21, TAB25, TAB32]
 
 
-# %% download and save files
+# %% ONETIME:  download and save files
 
 for f in files:
     print(f)
@@ -113,9 +113,12 @@ tabs = pd.read_excel(io=fn, sheet_name='national')
 tabmaps = pd.read_excel(io=fn, sheet_name='tablemaps')
 
 # loop through the tables listed in tabs
-tab = 'tab12'
+# tab = 'tab14'
+tabs.table
+tabsuse = tabs.table.drop([3])  # not ready to use tab21
+
 tablist = []
-for tab in tabs.table:
+for tab in tabsuse:
     # get info describing a specific table
     tabd = tabs[tabs['table'] == tab]
     tabinfo = pd.merge(tabd, tabmaps, on='table')
