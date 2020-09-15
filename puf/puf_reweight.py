@@ -66,10 +66,10 @@ dupvars = check[idups]['variable'].unique()
 dupvars
 
 # now check values
-keep = (irstot.variable.isin(dupvars)) & (irstot.irsstub==0)
+keep = (irstot.variable.isin(dupvars)) & (irstot.irsstub == 0)
 dups = irstot[keep][['variable', 'src', 'column_description', 'value']]
 dups.sort_values(['variable', 'src'])
-# looks ok - we can select any of the duplicates we want
+# looks ok except for very minor differences - any target version should do
 
 
 # %% prepare a puf summary for several target variables
@@ -80,8 +80,7 @@ df['IRS_STUB'] = pd.cut(
     df['c00100'],
     IRS_AGI_STUBS,
     labels=list(range(1, len(IRS_AGI_STUBS))),
-    right=False,
-)
+    right=False)
 df.columns.sort_values().tolist()  # show all column names
 
 vars = ['agi', 'wages', 'nret_all']
@@ -103,6 +102,7 @@ df3 = df2.groupby('IRS_STUB').apply(wsum,
 
 df3 = df3.append(df3.sum().rename(0)).sort_values('IRS_STUB')
 df3
+
 
 # %% combine IRS totals and PUF totals and compare
 keep = (irstot.src == '18in14ar.xls') & (irstot.variable.isin(['nret_all', 'agi', 'wages']))
@@ -139,12 +139,177 @@ comp[(comp['variable'] == 'nret_all')]
 comp[(comp['variable'] == 'agi')]
 comp[(comp['variable'] == 'wages')]
 
+
 # compshow = comp[(comp['variable'] == 'nret_all')]
 # compshow.style.format({"irs": "${:20,.0f}"})
 
 # pd.options.display.float_format = '{:,.1f}'.format
 # pd.reset_option('display.float_format')
 
+
+# %% target an income range
+df2.head()
+df2.info()
+df2.IRS_STUB.count()
+df2.IRS_STUB.value_counts()
+
+
+def constraints(x, wh, xmat):
+    return np.dot(x * wh, xmat)
+
+# prepare all targets
+targets_all = irscomp.pivot(index='irsstub', columns='variable', values='irs')
+targets_all.agi *= 1000
+targets_all.wages *= 1000
+# targets_stub = targets_all.iloc[stub]
+# type(targets_stub)
+# targets_stub
+# np.array(targets_stub)
+
+# prepare data
+tcols = ['nret_all', 'agi', 'wages']
+xcols = ['nret', 'c00100', 'e00200']
+
+
+stub = 12
+pufstub = df2.loc[df['IRS_STUB'] ==  stub]
+
+xmat = np.asarray(pufstub[xcols], dtype=float)
+xmat.shape
+
+wh = np.asarray(pufstub.s006)
+
+targets_stub = targets_all[tcols].iloc[stub]
+targets_stub = np.asarray(targets_stub, dtype=float)
+
+x0 = np.ones(wh.size)
+
+# comp
+t0 = constraints(x0, wh, xmat)
+pdiff0 = t0 / targets_stub * 100 - 100
+pdiff0
+
+rwp = rw.Reweight(wh, xmat, targets_stub)
+x, info = rwp.reweight(xlb=0.1, xub=10,
+                       crange=.0001,
+                       ccgoal=10, objgoal=100,
+                       max_iter=50)
+info['status_msg']
+
+np.quantile(x, [0, .1, .25, .5, .75, .9, 1])
+
+t1 = constraints(x, wh, xmat)
+pdiff1 = t1 / targets_stub * 100 - 100
+pdiff1
+
+
+# %% loop through puf
+grouped = df2.groupby('IRS_STUB')
+def func(df):
+    df['NewCol'] = 10 * df.name # df.name is the stub value
+    return df
+grouped.apply(func)
+
+
+
+
+
+
+# play below here
+grouped = df2.groupby('IRS_STUB')
+def func(df):
+    df['NewCol'] = 10 * df.name # df.name is the stub value
+    return df
+grouped.apply(func)
+
+
+def func(x):
+    x['NewCol'] = 10 * x['IRS_STUB']
+    return x
+df2.groupby('IRS_STUB').apply(func)
+
+def func(x):
+    x['NewCol'] = 10 * x.name # x.name is the stub
+    return x
+
+df2.groupby('IRS_STUB').apply(func)
+
+for name, group in grouped:
+    print(name)
+    print(group)
+
+for name in grouped:
+    print(name)
+
+for group in grouped:
+    print(group)
+
+transformed = grouped.transform(lambda x: x.fillna(x.mean()))
+for name, group in transformed:
+    print(name)
+    print(group)
+
+for name in transformed:
+    print(group)
+
+
+
+# %% old stuff
+stub = df.loc[df['IRS_STUB'] == 3].copy()
+stub['ones'] = 1.0
+
+
+tcols = ['nret_all', 'agi', 'wages']
+xcols = ['nret', 'c00100', 'e00200']
+targets_stub = targets_all[tcols].iloc[stub]
+targets_stub = np.asarray(targets_stub, dtype=float)
+
+targets = irstot[cols].iloc[3]
+targets.agi = targets.agi * 1000.
+targets = np.asarray(targets, dtype=float)
+type(targets)
+targets
+
+cols = ['nagi', 'agi']
+xcols = ['ones', 'c00100']
+targets = irstot[cols].iloc[3]
+targets.agi = targets.agi * 1000.
+targets = np.asarray(targets, dtype=float)
+type(targets)
+targets
+
+wh = np.asarray(stub.s006)
+type(wh)
+
+# xmat = stub[['c00100']]
+# xmat = np.array()
+xmat = np.asarray(stub[xcols], dtype=float)
+xmat.shape
+
+x0 = np.ones(wh.size)
+
+t0 = constraints(x0, wh, xmat)
+pdiff0 = t0 / targets * 100 - 100
+pdiff0
+comp[['npdiff', 'wpdiff']].iloc[2]
+
+rwp = rw.Reweight(wh, xmat, targets)
+x, info = rwp.reweight(xlb=0.1, xub=10,
+                       crange=.0001,
+                       ccgoal=10, objgoal=100,
+                       max_iter=50)
+info['status_msg']
+
+np.quantile(x, [0, .1, .25, .5, .75, .9, 1])
+
+t1 = constraints(x, wh, xmat)
+pdiff1 = t1 / targets * 100 - 100
+pdiff1
+
+data = load_wine()
+wine = pd.DataFrame(data.data,
+                    columns=data.feature_names)
+wine.head()
 
 
 # %% misc

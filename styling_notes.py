@@ -33,6 +33,7 @@ df.pivot_table(index='foo',
                margins_name='total',  # defaults to 'All'
                aggfunc=sum)
 
+
 # does not work
 df.pivot_table(margins=True,
                margins_name='total',  # defaults to 'All'
