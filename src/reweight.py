@@ -24,7 +24,7 @@ class Reweight(ipopt.problem):
         self._wh = wh
         # self._wh = np.array(wh)
         self._xmat = xmat
-        self._targets = targets
+        self._targets = targets  # length must be _m, flatten if needed
         self._n = xmat.shape[0]
         self._m = xmat.shape[1]
 
@@ -111,10 +111,10 @@ class Reweight(ipopt.problem):
         for option, value in opts.items():
             nlp.addOption(option, value)
 
-        outfile = 'test4.out'
-        if os.path.exists(outfile):
-            os.remove(outfile)
-        nlp.addOption('output_file', outfile)
+        # outfile = 'test4.out'
+        # if os.path.exists(outfile):
+        #     os.remove(outfile)
+        # nlp.addOption('output_file', outfile)
         # nlp.addOption('derivative_test', 'first-order')  # second-order
 
         # nlp_scaling_method: default gradient-based

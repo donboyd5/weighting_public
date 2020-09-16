@@ -162,11 +162,4 @@ targets_all.to_csv(DATADIR + 'targets2018.csv', index=False)
 # df.iloc[0]
 # df.iloc[1:, 1:].sum() - df.iloc[0]  # yes
 
-# create a mapping of incrange to stubs
-
-
-
-# %% create targets suitable for reweighting national puf
-
-
 
