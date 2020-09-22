@@ -62,6 +62,12 @@ df.head(10).style.format({"BasePay": "${:20,.0f}",
                           "TotalPay": "${:20,.0f}",
                           "TotalPayBenefits":"${:20,.0f}"})
 
+temp = df.head(10).style.format({"BasePay": "${:20,.0f}",
+                          "OtherPay": "${:20,.0f}",
+                          "TotalPay": "${:20,.0f}",
+                          "TotalPayBenefits":"${:20,.0f}"})
+print(temp)
+
 # lower case
 df.head(10).style.format({"BasePay": "${:20,.0f}",
                           "OtherPay": "${:20,.0f}",

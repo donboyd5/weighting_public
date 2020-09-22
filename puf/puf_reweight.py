@@ -18,6 +18,7 @@ https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-
 """
 
 # %% imports
+import sys
 import taxcalc as tc
 import pandas as pd
 import numpy as np
@@ -26,6 +27,38 @@ from bokeh.io import show, output_notebook
 import src.reweight as rw
 
 from timeit import default_timer as timer
+
+# %% utility functions
+
+
+def getmem(objects=dir()):
+    """ Memory used, not including objects starting with '_'.
+        Example:  getmem().head(10)
+    """
+    mb = 1024**2
+    mem = {}
+    for i in objects:
+        if not i.startswith('_'):
+            mem[i] = sys.getsizeof(eval(i))
+    mem = pd.Series(mem) / mb
+    mem = mem.sort_values(ascending=False)
+    return mem
+
+
+# %% program functions
+
+def wsum(grp, sumvars, wtvar):
+    """ Returns data frame row with weighted sums of selected variables.
+
+        grp: a dataframe (typically a dataframe group)
+        sumvars: the variables for which we want weighted sums
+        wtvar:  the weighting variable
+    """
+    return grp[sumvars].multiply(grp[wtvar], axis=0).sum()
+
+
+def constraints(x, wh, xmat):
+    return np.dot(x * wh, xmat)
 
 
 # %% locations and file names
@@ -71,15 +104,15 @@ irstot = pd.read_csv(IRSDAT)
 irstot
 
 # get irsstub and incrange mapping
-# create a uniform incrange variable
+# incrange for irsstub 0 and 1 doesn't have consistent text values so set them
 irstot.loc[irstot['irsstub'] == 0, 'incrange'] = 'All returns'
 irstot.loc[irstot['irsstub'] == 1, 'incrange'] = 'No adjusted gross income'
-
 
 incmap = irstot[['irsstub', 'incrange']].drop_duplicates()
 incmap
 
-# drop targets for which I haven't yet set column descriptions
+# drop targets for which I haven't yet set column descriptions as we won't
+# use them
 irstot = irstot.dropna(axis=0, subset=['column_description'])
 irstot
 irstot.columns
@@ -89,24 +122,26 @@ irstot[['src', 'variable', 'value']].groupby(['src', 'variable']).agg(['count'])
 irstot[['variable', 'value']].groupby(['variable']).agg(['count'])  # unique list
 
 # quick check to make sure duplicate variables have same values
+# get unique combinations of src, variable
 check = irstot[irstot.irsstub == 0][['src', 'variable']]
+# indexes of duplicated combinations
 idups = check.duplicated(subset='variable', keep=False)
 check[idups].sort_values(['variable', 'src'])
 dupvars = check[idups]['variable'].unique()
 dupvars
 
-# now check values
-keep = (irstot.variable.isin(dupvars)) & (irstot.irsstub == 0)
-dups = irstot[keep][['variable', 'src', 'column_description', 'value']]
-dups.sort_values(['variable', 'src'])
-# looks ok except for very minor differences - any target version should do
+# now check the stub 0 values of the variables that have duplicated values
+qx = 'variable in @dupvars and irsstub==0'
+vars = ['variable', 'column_description', 'src', 'value']
+irstot.query(qx)[vars].sort_values(['variable', 'src'])
+# looks ok except for very minor taxac differences
+# any target version should be ok
 
 
 # %% prepare potential targets based on xwalks above
-
-tlist = list(TARGPUF_XWALK.keys()) # these are the target variables we need to have
-# need:
-#    cgnet = cggross - cgloss   # Table 1.4
+# define target variables
+tlist = list(TARGPUF_XWALK.keys())  # values we want
+# compute  cgnet = cggross - cgloss   # Table 1.4
 tlist.remove('cgnet')
 tlist.append('cggross')
 tlist.append('cgloss')
@@ -114,22 +149,22 @@ tlist
 
 # get the proper data
 irstot
-# first, get all needed variables, then filter duplicates
-df = irstot[irstot['variable'].isin(tlist)]
-df[['variable', 'value']].groupby(['variable']).agg(['count'])
-# agi, nret_all, and ti have duplicate values -- keep just src 18in11si.xls
-
-keep1 = df['src'] == '18in11si.xls'
-keep2 = np.logical_not(df['variable'].isin(['nret_all', 'agi', 'ti']))
-keep = keep1 | keep2  # CAUTION: | is not the same as or
-keep1.sum()
-keep2.sum()
-keep.sum()
-target_base = df[keep][['variable', 'irsstub', 'value']]
+qx1 = 'variable in @tlist and '
+qx2 = '((variable not in @dupvars) or '
+qx3 = '(variable in @dupvars and src=="18in11si.xls"))'
+qx = qx1 + qx2 + qx3
+qx
+vars = ['variable', 'irsstub', 'value']
+target_base = irstot.query(qx)[vars]
 target_base[['variable', 'value']].groupby(['variable']).agg(['count'])
 # good, this is what we want
 
 wide = target_base.pivot(index='irsstub', columns='variable', values='value')
+# multiply the dollar-valued columns by 1000 (i.e., the non-num cols)
+numcols = ['nret_all', 'nret_mfjss', 'nret_single']
+dollcols = np.setdiff1d(wide.columns, numcols)
+dollcols
+wide[dollcols] = wide[dollcols] * 1000
 wide['cgnet'] = wide['cggross'] - wide['cgloss']
 wide = wide.drop(['cggross', 'cgloss'], axis=1)
 wide['irsstub'] = wide.index
@@ -137,21 +172,18 @@ wide.columns
 targets_long = pd.melt(wide, id_vars=['irsstub'])
 targets_long['variable'].value_counts()
 
-# put dollar-valued targets in dollars rather than thousands
-condition = np.logical_not(targets_long['variable'].isin(['nret_all', 'nret_mfjss', 'nret_single']))
-condition.sum()
-# here is the numpy equivalent to R ifelse
-targets_long['value'] = np.where(condition, targets_long['value'] * 1000, targets_long['value'])
+# alternative: here is the numpy equivalent to R ifelse
+# targets_long['value'] = np.where(condition, targets_long['value'] * 1000, targets_long['value'])
 
 
-
-# %% get advanced file
+# %% get advanced puf file
 %time puf_2018 = pd.read_hdf(PUF_HDF)  # 1 sec
 puf_2018.tail()
 puf_2018.columns.sort_values().tolist()  # show all column names
 
 pufsub = puf_2018.copy()  # new data frame
 pufsub = pufsub.loc[pufsub["data_source"] == 1]  # ~7k records dropped
+# create an irs stub categorical variable
 pufsub['IRS_STUB'] = pd.cut(
     pufsub['c00100'],
     IRS_AGI_STUBS,
@@ -161,21 +193,25 @@ pufsub.columns.sort_values().tolist()  # show all column names
 
 
 # %% get just the variables we want and create new needed variables
-plist = list(PUFTARG_XWALK.keys()) # these are the target variables we need to have
+# get list of target variables we need to have
+plist = list(PUFTARG_XWALK.keys())
 plist
+# add names of variables we need for calculations or targeting
 plist.append('pid')
 plist.append('IRS_STUB')
 plist.append('s006')
 plist.append('MARS')
+# remove names of variables we are going to create
 plist.remove('nret_all')  # create as 1
 plist.remove('nret_mars1')  # MARS==1
 plist.remove('nret_mars2')  # MARS==2
+# pension variables needed to calculate irapentot, and remove that name
 plist.append('e01400')
 plist.append('e01500')
 plist.remove('irapentot')  # e01400 + e01500
-plist
+plist  # these are the variables we need from the puf
 
-# is everything from plist in pufsub.columns?
+# is everything from plist available in pufsub.columns?
 [x for x in plist if x not in pufsub.columns]  # yes, all set
 
 pufbase = pufsub[plist].copy()
@@ -189,6 +225,7 @@ pufbase.nret_mars1.sum()
 pufbase.nret_mars2.sum()
 # all good
 pufbase['irapentot'] = pufbase['e01400'] + pufbase['e01500']
+# drop variables no longer needed
 pufbase = pufbase.drop(['MARS', 'e01400', 'e01500'], axis=1)
 pufbase
 pufbase.columns
@@ -205,35 +242,28 @@ pufbase.columns
 
 # %% prepare a puf summary for potential target variables
 
-def wsum(grp, sumvars, wtvar):
-    return grp[sumvars].multiply(grp[wtvar], axis=0).sum()
-
-
 pufsums = pufbase.groupby('IRS_STUB').apply(wsum,
-                              sumvars=targvars,
-                              wtvar='s006')
+                                            sumvars=targvars,
+                                            wtvar='s006')
 
 pufsums = pufsums.append(pufsums.sum().rename(0)).sort_values('IRS_STUB')
 pufsums['irsstub'] = pufsums.index
 pufsums
 
 pufsums = pufsums.rename(columns=PUFTARG_XWALK)
-
 pufsums_long = pd.melt(pufsums, id_vars=['irsstub'])
+pufsums_long
 
 
 # %% combine IRS totals and PUF totals and compare
 targets_long
 pufsums_long
 
-irscomp = targets_long
-irscomp = irscomp.rename(columns={'value': 'irs'})
-# irscomp['irs'] = pd.Series.astype(irscomp['irs'], 'float')
+irscomp = targets_long.rename(columns={'value': 'irs'})
 irscomp
 irscomp.info()
 
-pufcomp = pufsums_long
-pufcomp = pufcomp.rename(columns={'value': 'puf'})
+pufcomp = pufsums_long.rename(columns={'value': 'puf'})
 pufcomp
 pufcomp.info()
 
@@ -244,23 +274,26 @@ format_mapping = {'irs': '{:,.0f}',
                   'puf': '{:,.0f}',
                   'diff': '{:,.0f}',
                   'pdiff': '{:,.1f}'}
+# caution: this changes numeric values to strings!
 for key, value in format_mapping.items():
     comp[key] = comp[key].apply(value.format)
-
-# comp['diffpctagi'] = comp['diff'] / comp[[('irsstub'==0)]]['irs']
-# comp.pdiff = comp.pdiff.round(decimals=1)
+comp.info()
 comp
 
-comp[(comp['variable'] == 'nret_all')]
-comp[(comp['variable'] == 'agi')]
-comp[(comp['variable'] == 'wages')]
+# comp.to_string(formatters=fmat)
+
+# look at selected variables
+# comp.query('variable == "nret_all"')
 
 
-# compshow = comp[(comp['variable'] == 'nret_all')]
-# compshow.style.format({"irs": "${:20,.0f}"})
+def f(var):
+    print(comp[comp['variable'] == var])
 
-# pd.options.display.float_format = '{:,.1f}'.format
-# pd.reset_option('display.float_format')
+
+voi = ['nret_all', 'agi', 'wages']
+f('nret_all')
+f(voi[1])
+f(voi[2])
 
 
 # %% target an income range
@@ -271,10 +304,6 @@ pufbase.info()
 pufbase.IRS_STUB.count()
 pufbase.IRS_STUB.value_counts()
 # pufbase['IRS_STUB'].value_counts()
-
-
-def constraints(x, wh, xmat):
-    return np.dot(x * wh, xmat)
 
 
 targets_long
@@ -292,12 +321,14 @@ targcols = ['nret_all', 'nret_mars2', 'nret_mars1',
             'c00100', 'e00200', 'e00300', 'e00600',
             'irapentot', 'c01000', 'e02400', 'c04800']
 
+# 10 good targets
 targcols = ['nret_all', 'nret_mars2', 'nret_mars1',
             'c00100', 'e00200', 'e00300', 'e00600',
             'irapentot', 'c01000', 'e02400']
 
 stub = 2
-pufstub = pufbase.loc[pufbase['IRS_STUB'] ==  stub]
+# pufstub = pufbase.loc[pufbase['IRS_STUB'] ==  stub]
+pufstub = pufbase.query('IRS_STUB == @stub')
 
 xmat = np.asarray(pufstub[targcols], dtype=float)
 xmat.shape
@@ -331,7 +362,7 @@ pdiff1
 
 # %% loop through puf
 
-def func(df):
+def stub_opt(df):
     print(df.name)
     stub = df.name
     # pufstub = pufbase.loc[pufbase['IRS_STUB'] ==  stub]
@@ -354,6 +385,7 @@ def func(df):
     df['x'] = x
     return df
 
+
 # targcols = ['nret_all', 'c00100', 'e00200']
 alltargs = ['nret_all', 'nret_mars2', 'nret_mars1',
             'c00100', 'e00200', 'e00300', 'e00600',
@@ -367,19 +399,37 @@ grouped = pufbase.groupby('IRS_STUB')
 temp = pufbase.loc[pufbase['IRS_STUB'] == 1]
 
 a = timer()
-dfnew = grouped.apply(func)
-# dfnew = temp.groupby('IRS_STUB').apply(lambda x: func(x, targcols))
+dfnew = grouped.apply(stub_opt)
+# dfnew = temp.groupby('IRS_STUB').apply(lambda x: stub_opt(x, targcols))
 b = timer()
 b - a
 
 dfnew
 dfnew['wtnew'] = dfnew.s006 * dfnew.x
+dfnew.info()
+# convert IRS_STUB from category to equivalent integer so that we can
+# save as hdf5 format, which does not allow category variables
+dfnew['IRS_STUB'] = dfnew['IRS_STUB'].cat.codes + 1
+dfnew.info()
+
+
+# %% save file
+PUF_RWTD = HDFDIR + 'puf2018_reweighted' + '.h5'
+PUF_RWTD_CSV = HDFDIR + 'puf2018_reweighted' + '.csv'
+
+%time dfnew.to_hdf(PUF_RWTD, 'data')  # 1 sec
+
+%time dfnew.to_csv(PUF_RWTD_CSV, index=None)  # 1 sec
+
+# get file
+%time dfnew = pd.read_hdf(PUF_RWTD)  # 235 ms
+%time dfcsv = pd.read_csv(PUF_RWTD_CSV)  # 235 ms
+
 
 
 # %% examine results
 targets_long
 pufsums_long
-
 
 result_sums = dfnew.groupby('IRS_STUB').apply(wsum,
                                                sumvars=alltargs,
@@ -407,7 +457,7 @@ comp2['pufrw_diff'] = comp2['pufrw'] - comp2['irs']
 comp2['puf_pdiff'] = comp2['puf_diff'] / comp2['irs'] * 100
 comp2['pufrw_pdiff'] = comp2['pufrw_diff'] / comp2['irs'] * 100
 
-# format the data
+# format the data - will change numerics to strings
 # mcols = list(comp2.columns)
 # mcols[2:7]
 comp3 = comp2.copy()
@@ -452,174 +502,12 @@ var = 'irapentot'
 var = 'taxint'
 var = 'cgnet'
 var = 'ti'
-comp3.loc[comp3['variable'] == var, dollarvars]
 comp3.loc[comp3['variable'] == var, pctvars]
+comp3.loc[comp3['variable'] == var, dollarvars]
 # comp3.loc[comp3['variable'] == var, allvars]
 
 
-
-
-# %% old stuff
-stub = df.loc[df['IRS_STUB'] == 3].copy()
-stub['ones'] = 1.0
-
-
-tcols = ['nret_all', 'agi', 'wages']
-xcols = ['nret', 'c00100', 'e00200']
-targets_stub = targets_all[tcols].iloc[stub]
-targets_stub = np.asarray(targets_stub, dtype=float)
-
-targets = irstot[cols].iloc[3]
-targets.agi = targets.agi * 1000.
-targets = np.asarray(targets, dtype=float)
-type(targets)
-targets
-
-cols = ['nagi', 'agi']
-xcols = ['ones', 'c00100']
-targets = irstot[cols].iloc[3]
-targets.agi = targets.agi * 1000.
-targets = np.asarray(targets, dtype=float)
-type(targets)
-targets
-
-wh = np.asarray(stub.s006)
-type(wh)
-
-# xmat = stub[['c00100']]
-# xmat = np.array()
-xmat = np.asarray(stub[xcols], dtype=float)
-xmat.shape
-
-x0 = np.ones(wh.size)
-
-t0 = constraints(x0, wh, xmat)
-pdiff0 = t0 / targets * 100 - 100
-pdiff0
-comp[['npdiff', 'wpdiff']].iloc[2]
-
-rwp = rw.Reweight(wh, xmat, targets)
-x, info = rwp.reweight(xlb=0.1, xub=10,
-                       crange=.0001,
-                       ccgoal=10, objgoal=100,
-                       max_iter=50)
-info['status_msg']
-
-np.quantile(x, [0, .1, .25, .5, .75, .9, 1])
-
-t1 = constraints(x, wh, xmat)
-pdiff1 = t1 / targets * 100 - 100
-pdiff1
-
-data = load_wine()
-wine = pd.DataFrame(data.data,
-                    columns=data.feature_names)
-wine.head()
-
-
-# %% misc
-
-df2.pivot_table(index='IRS_STUB',
-               margins=True,
-               margins_name='0',  # defaults to 'All'
-               aggfunc=sum)
-
-# map puf names to irstot variable values
-
-df.info()
-desc = df.describe()
-cols = df.columns
-
-tmp = irstot.loc[(irstot.src == '18in11si.xls') &
-             (irstot.irsstub == 0) &
-             (irstot.variable == 'nret_all')]
-nret_all = tmp.iloc[0].value
-
-df.s006.sum() / nret_all * 100 - 100  # -+1.4%
-# djb pick up here ----
-
-retcount = df.loc[df['c00100'] >= 10e6].s006.sum()
-rec = irstot.loc[(irstot.src == '18in11si.xls') &
-                 (irstot.irsstub == 19) &
-                 (irstot.variable == 'nret_all')]
-irscount = rec.iloc[0].value
-retcount / irscount * 100 - 100  # +7%
-
-df["IRS_STUB"] = pd.cut(
-    df["c00100"],
-    IRS_AGI_STUBS,
-    labels=list(range(1, len(IRS_AGI_STUBS))),
-    right=False,
-)
-
-df['wagi'] = df['s006'] * df['c00100']
-grouped = df.groupby('IRS_STUB')
-
-comp = irstot.drop(0)[['incrange', 'nagi', 'agi']]
-comp['nagi'] = comp['nagi'].astype(float)
-comp['nsums'] = grouped.s006.sum()
-comp['ndiff'] = comp['nsums'] - comp['nagi']
-comp['npdiff'] = comp['ndiff'] / comp['nagi'] * 100
-comp['wagi'] = grouped.wagi.sum() / 1000
-comp['wdiff'] = comp['wagi'] - comp['agi']
-comp['wpdiff'] = comp['wdiff'] / comp['agi'] * 100
-comp['wdiff_pctagi'] = comp.wdiff / sum(comp.agi) * 100
-comp
-comp.round(1)
-
-
-totals = comp.drop(columns=['incrange', 'npdiff', 'wpdiff', 'wdiff_pctagi']).sum()
-totals.ndiff / totals.nagi * 100  # 1.4%
-totals.wdiff / totals.agi * 100  # 3.1%
-
-
-# %% reweight the 2018 puf
-# pick an income range to reweight and hit the number of returns and the amount of AGI
-
-def constraints(x, wh, xmat):
-    return np.dot(x * wh, xmat)
-
-stub = df.loc[df['IRS_STUB'] == 3].copy()
-stub['ones'] = 1.0
-
-cols = ['nagi', 'agi']
-xcols = ['ones', 'c00100']
-targets = irstot[cols].iloc[3]
-targets.agi = targets.agi * 1000.
-targets = np.asarray(targets, dtype=float)
-type(targets)
-targets
-
-wh = np.asarray(stub.s006)
-type(wh)
-
-# xmat = stub[['c00100']]
-# xmat = np.array()
-xmat = np.asarray(stub[xcols], dtype=float)
-xmat.shape
-
-x0 = np.ones(wh.size)
-
-t0 = constraints(x0, wh, xmat)
-pdiff0 = t0 / targets * 100 - 100
-pdiff0
-comp[['npdiff', 'wpdiff']].iloc[2]
-
-rwp = rw.Reweight(wh, xmat, targets)
-x, info = rwp.reweight(xlb=0.1, xub=10,
-                       crange=.0001,
-                       ccgoal=10, objgoal=100,
-                       max_iter=50)
-info['status_msg']
-
-np.quantile(x, [0, .1, .25, .5, .75, .9, 1])
-
-t1 = constraints(x, wh, xmat)
-pdiff1 = t1 / targets * 100 - 100
-pdiff1
-
-
-# %% notes
+# %% Peter's  crosswalks
 # Peter's mappings of puf to historical table 2
 # "n1": "N1",  # Total population
 # "mars1_n": "MARS1",  # Single returns number
