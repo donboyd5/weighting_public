@@ -14,6 +14,15 @@ https://github.com/ray-project/ray
 @author: donbo
 """
 
+# Notes about eclipse
+
+
+# %% set working directory if not already set
+import os
+os.getcwd()
+os.chdir('C:/programs_python/weighting')
+os.getcwd()
+
 # %% imports
 import sys
 import requests
@@ -115,7 +124,6 @@ def constraints(x, wh, xmat):
     return np.dot(x * wh, xmat)
 
 
-
 # %% ONETIME download Historical Table 2
 files = [HT2_2018]
 
@@ -161,24 +169,12 @@ h2stubs = pd.DataFrame([
 h2stubs
 h2stubs.info()
 
-# agi_stub	aginame
-# 0	All income ranges
-# 1	Under $1
-# 2	$1 under $10,000
-# 3	$10,000 under $25,000
-# 4	$25,000 under $50,000
-# 5	$50,000 under $75,000
-# 6	$75,000 under $100,000
-# 7	$100,000 under $200,000
-# 8	$200,000 under $500,000
-# 9	$500,000 under $1,000,000
-# 10	$1,000,000 or more
-
 
 # %% get reweighted national puf
 PUF_RWTD = HDFDIR + 'puf2018_reweighted' + '.h5'
 pufrw = pd.read_hdf(PUF_RWTD)  # 1 sec
 pufrw.columns.sort_values()
+pufrw
 
 
 # %% prepare puf subset and weighted sums
@@ -205,7 +201,6 @@ pufsums = pufsub.groupby('HT2_STUB').apply(wsum,
 pufsums = pufsums.append(pufsums.sum().rename(0)).sort_values('HT2_STUB')
 pufsums['HT2_STUB'] = pufsums.index
 pufsums
-
 
 
 # %% prepare compatible ht2 subset
@@ -251,48 +246,93 @@ round(pufsums.drop(columns='HT2_STUB') / ht2sums.drop(columns='HT2_STUB') * 100 
 # e02400 is way off, c04800 has some trouble, and irapentot is way off, so don't use them
 # the rest look good
 
+# %% targvars and states definitions
 targvars = ['nret_all', 'nret_mars1', 'nret_mars2', 'c00100', 'e00200',
             'e00300', 'e00600']
 targvars + ['HT2_STUB']
 
+targstates = ['CA', 'FL', 'NY', 'TX']
+targstates = ['CA']
+targstates = ['CA', 'FL']
+targstates = ['CA', 'NY']
+targstates = ['CA', 'TX']
+targstates = ['FL', 'TX']
+targstates = ['FL', 'NY', 'TX']
+targstates = ['CA', 'FL', 'NY', 'OH', 'PA', 'TX']
+targstates = ['CA', 'CT', 'FL', 'GA', 'MA', 'NY', 'OH', 'OR', 'PA', 'TX', 'WA']
 
-# %% prepare to geoweight
+targstates = ['AL', 'AR', 'CA', 'CT', 'FL', 'GA', 'MA', 'MN', 'NJ', 'NY', 'OH', 'OR', 'PA', 'TX', 'WA']
+targstates = ['AK', 'AL', 'AR', 'CA', 'CT', 'FL', 'GA', 'MD',
+              'MA', 'MN', 'NH', 'NJ', 'NY', 'OH', 'OR', 'PA', 'TN', 'TX', 'VT', 'WA']
+
+
+# %% geoweight just one stub
 pufsub.columns
 pufsub[['HT2_STUB', 'pid']].groupby(['HT2_STUB']).agg(['count'])
 
-stub = 6
+stub = 8
 pufstub = pufsub.query('HT2_STUB == @stub')[['pid', 'HT2_STUB', 'wtnew'] + targvars]
 pufstub
 
 ht2stub = ht2_sub.query('HT2_STUB == @stub & STATE != "US"')[['STATE', 'HT2_STUB'] + targvars]
 ht2stub
+round(ht2stub[targvars].div(ht2stub.nret_all, axis=0) * 100, 1)
+
+# create an adjusted ht2stub that only has target states
+ht2stub_adj = ht2stub.copy()
+mask = np.logical_not(ht2stub_adj['STATE'].isin(targstates))
+column_name = 'STATE'
+ht2stub_adj.loc[mask, column_name] = 'OA'
+ht2stub_adj[['STATE', 'HT2_STUB']].groupby(['STATE']).agg(['count'])
+ht2stub_adj = ht2stub_adj.groupby(['STATE', 'HT2_STUB']).sum()
+ht2stub_adj.info()
+round(ht2stub_adj.div(ht2stub_adj.nret_all, axis=0), 1)
+ht2stub_adj.sum()
+ht2stub_adj
+# pufsums.query('HT2_STUB == @stub')[targvars]
+# np.array(ht2stub_adj.sum())
+# ratios = pufsums.query('HT2_STUB == @stub')[targvars] / np.array(ht2stub_adj.sum())
+# ratios = np.array(ratios)
+
 
 wh = pufstub.wtnew.to_numpy()
 xmat = np.asarray(pufstub[targvars], dtype=float)
 xmat.shape
+# use one of the following
 targets = ht2stub.drop(columns=['STATE', 'HT2_STUB'])
-targets = np.asarray(targets, dtype=float)
+# targets = ht2stub_adj # .drop(columns=['STATE', 'HT2_STUB'])
+targets = np.asarray(ht2stub_adj, dtype=float)
+targets
+# targets_scaled = targets * ratios
+# targets.shape
+# targets_scaled.shape
+
+# targets_scaled / targets
+
+# scale targets by ratio of pufsums to HT2
 
 g = mw.Microweight(wh, xmat, targets)
+# g = mw.Microweight(wh, xmat, targets_scaled)
 
 # look at the inputs
 g.wh
 g.xmat
 g.geotargets
 
-g.wh.shape
-g.xmat.shape
-g.geotargets.shape
+# g.wh.shape
+# g.xmat.shape
+# g.geotargets.shape
 
-type(g.wh)
-type(g.xmat)
-type(g.geotargets)
+# type(g.wh)
+# type(g.xmat)
+# type(g.geotargets)
 
 # solve for state weights
 g.geoweight()
 
 # examine results
 g.elapsed_minutes
+np.round(g.result.fun.reshape(targets.shape), 1)
 g.result  # this is the result returned by the solver
 dir(g.result)
 g.result.cost  # objective function value at optimum
@@ -302,15 +342,16 @@ g.result.message
 g.beta_opt  # beta coefficients, s x k
 g.delta_opt  # delta constants, 1 x h
 g.whs_opt  # state weights
+g.whs_opt.shape
 g.geotargets_opt
 
+g.geotargets_opt.sum(axis=0)
+
+
 np.round(g.result.fun, 1)
-np.round(g.result.fun.reshape(53, 7), 1)
-
-
-
-
-
+np.round(g.result.fun.reshape(targets.shape), 1)
+round(ht2stub_adj.div(ht2stub_adj.nret_all, axis=0), 1)
+# np.round(g.result.fun.reshape(7, 5), 1)
 
 
 
