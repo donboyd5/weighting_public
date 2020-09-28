@@ -59,11 +59,13 @@ class Microweight:
         # input checks:
             # geotargets must by s x k
 
-        betavec0 = np.zeros(self.geotargets.size)
+        # betavec0 = np.zeros(self.geotargets.size)
+        betavec0 = np.full(self.geotargets.size, 1e-12) # 1e-13 seems best
         dw = get_diff_weights(self.geotargets)
 
         result = least_squares(targets_diff, betavec0,
                      method='trf', jac='2-point', verbose=2,
+                     ftol=1e-10, xtol=1e-10,
                      args=(self.wh, self.xmat, self.geotargets, dw))
         self.result = result
         end = timer()
@@ -96,13 +98,31 @@ def get_delta(wh, beta, xmat):
 
     See (Khitatrakun, Mermin, Francis, 2016, p.5)
 
-    Note: we cannot let beta %*% xmat get too large!! or exp will be Inf and
-    problem will bomb. It will get large when a beta element times an
-    xmat element is large, so either beta or xmat can be the problem.
+    Note: beta %*% xmat can get very large!! in which case or exp will be Inf.
+    It will get large when a beta element times an xmat element is large,
+    so either beta or xmat can be the problem.
+
+    In R the problem will bomb but with numpy it appears to recover
+    gracefully.
+
+    According to https://stackoverflow.com/questions/40726490/overflow-error-in-pythons-numpy-exp-function
+      For most practical purposes, you can probably approximate
+        1 / (1 + <a large number>) to zero. That is to say, just ignore the
+      warning and move on. Numpy takes care of the approximation for
+      you (when using np.float64).
+
+    This will generate runtime warnings of overflow or divide by zero.
     """
+
     beta_x = np.exp(np.dot(beta, xmat.T))
 
+    # beta_x[beta_x == 0] = 0.1  # experimental
+    # beta_x[np.isnan(beta_x)] = 0.1
+
     delta = np.log(wh / beta_x.sum(axis=0))  # axis=0 gives colsums
+    # print(delta)
+    # delta[delta == 0] = 0.1  # experimental
+    # delta[np.isnan(delta)] = 0.1
     return delta
 
 
