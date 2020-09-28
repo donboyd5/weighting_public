@@ -249,6 +249,36 @@ pd.options.display.max_columns = 0
 # e02400 is way off, c04800 has some trouble, and irapentot is way off, so don't use them
 # the rest look good
 
+# create adjustment ratios to apply to all ht2 values, based on national relationships
+(pufsums.drop(columns='HT2_STUB') / ht2sums.drop(columns='HT2_STUB'))
+(pufsums / ht2sums)
+
+pufht2_ratios = (pufsums / ht2sums)
+pufht2_ratios['HT2_STUB'] = pufht2_ratios.index
+pufht2_ratios = pufht2_ratios.fillna(1)  # we won't use c04800
+pufht2_ratios
+
+
+# %% create adjusted HT2 targets for all states, based on the ratios
+pufht2_ratios
+
+# the slow way
+ht2_sub_adj = ht2_sub.copy()
+ht2_sub_adjlong = pd.melt(ht2_sub_adj, id_vars=['HT2_STUB', 'STATE'])
+ratios_long = pd.melt(pufht2_ratios, id_vars=['HT2_STUB'], value_name='ratio')
+ht2_sub_adjlong =pd.merge(ht2_sub_adjlong, ratios_long, on=['HT2_STUB', 'variable'])
+ht2_sub_adjlong['value'] = ht2_sub_adjlong['value'] * ht2_sub_adjlong['ratio']
+ht2_sub_adjlong = ht2_sub_adjlong.drop(['ratio'], axis=1)
+ht2_sub_adj = ht2_sub_adjlong.pivot(index=['HT2_STUB', 'STATE'], columns='variable', values='value')
+
+
+# check
+ht2sumsadj = ht2_sub_adj.query('STATE=="US"')
+pufsums / ht2sumsadj
+
+ht2_sub_adj = ht2_sub_adj.reset_index() # get indexes as columns
+
+
 # %% targvars and states definitions
 targvars = ['nret_all', 'nret_mars1', 'nret_mars2', 'c00100', 'e00200',
             'e00300', 'e00600']
@@ -277,10 +307,19 @@ stub = 9
 pufstub = pufsub.query('HT2_STUB == @stub')[['pid', 'HT2_STUB', 'wtnew'] + targvars]
 pufstub
 
+# use one of the following ht2_sub_adj
 ht2stub = ht2_sub.query('HT2_STUB == @stub & STATE != "US"')[['STATE', 'HT2_STUB'] + targvars]
+ht2stub = ht2_sub_adj.query('HT2_STUB == @stub & STATE != "US"')[['STATE', 'HT2_STUB'] + targvars]
 ht2stub
 # show average target value per return times 100
 round(ht2stub[targvars].div(ht2stub.nret_all, axis=0) * 100, 1)
+
+# use one of the following
+htot = ht2sums.query('HT2_STUB ==@stub')[targvars]
+htot = ht2sumsadj.query('HT2_STUB ==@stub')[targvars]
+
+ptot = pufsums.query('HT2_STUB ==@stub')[targvars]
+ptot / htot
 
 # create an adjusted ht2stub that only has target states
 ht2stub_adj = ht2stub.copy()
@@ -299,12 +338,23 @@ ht2stub_adj
 # ratios = pufsums.query('HT2_STUB == @stub')[targvars] / np.array(ht2stub_adj.sum())
 # ratios = np.array(ratios)
 
+# create possible starting values -- each record given each state's shares
+ht2shares = ht2stub_adj.loc[:, ['nret_all']].copy()
+ht2shares['share'] = ht2shares['nret_all'] / ht2shares['nret_all'].sum()
+ht2shares = ht2shares.reset_index('STATE')
+
+start_values = pufstub.loc[:, ['HT2_STUB', 'pid', 'wtnew']].copy().set_index('HT2_STUB')
+# cartesian product
+start_values = pd.merge(start_values, ht2shares, on='HT2_STUB')
+start_values['iwhs'] = start_values['wtnew'] * start_values['share']
+start_values  # good, everything is in the right order
+iwhs = start_values.iwhs.to_numpy()
 
 wh = pufstub.wtnew.to_numpy()
 xmat = np.asarray(pufstub[targvars], dtype=float)
 xmat.shape
 # use one of the following
-targets = ht2stub.drop(columns=['STATE', 'HT2_STUB'])
+targets1 = ht2stub.drop(columns=['STATE', 'HT2_STUB'])
 # targets = ht2stub_adj # .drop(columns=['STATE', 'HT2_STUB'])
 targets = np.asarray(ht2stub_adj, dtype=float)
 targets
@@ -382,123 +432,28 @@ xx = p.whs.flatten() # xx[0:2] = p.whs [0, 0:2], xx[3:5] = p.whs[1, 0:2]
 # 1 1 1 0000000000000000
 # 0 0 0, 1 1 1, 000000000000
 # 000, 000, 111, 0000000000
-nwh = p.whs.shape[0]  # int(xx.size)
-ns = p.whs.shape[1]
-A = np.zeros((nwh, nwh * ns))  # Pre-allocate matrix
-for i in range(0, nwh):
-    A[i, range(i*ns, i*ns+ns)] = 1
-A
-A.dot(xx)
-p.wh
-lincon = sp.optimize.LinearConstraint(A, p.wh, p.wh)
 
 from scipy.sparse import lil_matrix
 # from scipy.sparse.linalg import spsolve
 # from numpy.linalg import solve, norm
 # from numpy.random import rand
-A2 = lil_matrix((nwh, nwh * ns))
-for i in range(0, nwh):
-    A2[i, range(i*ns, i*ns+ns)] = 1
-A2
-A2.dot(xx)
-lincon2 = sp.optimize.LinearConstraint(A2, p.wh, p.wh)
 
-
-A = lil_matrix((1000, 1000))
-A[0, :100] = rand(100)
-A[1, 100:200] = A[0, :100]
-A.setdiag(rand(1000))
-Now convert it to CSR format and solve A x = b for x:
-
->>>
-A = A.tocsr()
-
-
-
-wh
-xmat
-targets
-
-p = mtp.Problem(h=20, s=3, k=2)
-
-p = mtp.Problem(h=40, s=5, k=2)
-
-p.whs.shape
-np.array([1, 2, 3]).shape
-xx = np.array([1, 2, 3])
-zz = p.whs.dot(xx) # (20, 3) dot (3, ) gives (20, )
-zz = p.whs.dot(xx.reshape(3, 1)) # (20, 3) dot (3, 1) gives (20, 1)
-# values are the same
-zz
-zz.shape
-
-p.wh
-p.targets
-p.xmat
-p.whs
-diffs = np.dot(p.whs.T, p.xmat) - p.targets
-np.square(diffs).sum()
 
 import autograd.numpy as np
 # import autograd.numpy.random as npr
 # import autograd.scipy.signal
 from autograd import grad
-
-
-
-
-# def rosen_der(x):
-#     xm = x[1:-1]
-#     xm_m1 = x[:-2]
-#     xm_p1 = x[2:]
-#     der = np.zeros_like(x)
-#     der[1:-1] = 200*(xm-xm_m1**2) - 400*(xm_p1 - xm**2)*xm - 2*(1-xm)
-#     der[0] = -400*x[0]*(x[1]-x[0]**2) - 2*(1-x[0])
-#     der[-1] = 200*(x[-1]-x[-2]**2)
-#     return der
-
-
-
-gx = mw.Microweight(p.wh, p.xmat, p.targets)
-gx.geoweight()
-gx.whs_opt
-gx.whs_opt.flatten()
+from autograd import elementwise_grad as egrad  # for functions that vectorize over inputs
 
 # lb <= A.dot(x) <= ub
 # x is whs.flatten()
 # lb, ub, are wh
 # so we have h rows in A, whs.size columns in A
 
-
-x= p.whs.flatten()
-x.reshape((p.xmat.shape[0], p.targets.shape[0]))
-f(p.whs, p.xmat, p.targets)
-x0 = np.full(p.whs.size, 0)
-x0 = np.full(p.whs.size, 1)
-x0 = np.full(p.whs.size, np.mean(p.wh))
-x0 = gx.whs_opt.flatten()
-# ans = fmin_slsqp(f, x0, args=(p.xmat, p.targets), iprint=2)
-# options={'func': None, 'maxiter': 100, 'ftol': 1e-06, 'iprint': 1, 'disp': False, 'eps': 1.4901161193847656e-08, 'finite_diff_rel_step': None}
-# res = ((test_tup, ) * N)
-bnds = [(14.0, 19.0)] * x0.size
-bnds = ((0, 120),) * x0.size
-bnds
-
-bnds = sp.optimize.Bounds(5.0, 25.0)
-bnds = sp.optimize.Bounds(13.0, 19.0, keep_feasible=True)
-bnds = sp.optimize.Bounds(0.0, np.inf)
-p.whs.min()
-p.whs.max()
-
-minimize(f, x0, method='SLSQP',
-               bounds=bnds,
-               args=(p.xmat, p.targets),
-               options={'iprint': 2, 'disp': True})
-
+# https://docs.scipy.org/doc/scipy/reference/optimize.minimize-trustconstr.html#optimize-minimize-trustconstr
 # fmin_slsqp(f, x0, args=(p.xmat, p.targets), iprint=2)
-bnds = [(0, 30) for _ in x0]
-bnds = [(13, 30.0)] * x0.size # zero lbound does not work, 14 lbound does not work
-ans = fmin_slsqp(f, x0, bounds=bnds, args=(p.xmat, p.targets), iprint=2)
+# bnds = [(0, 30) for _ in x0]
+# bnds = [(13, 30.0)] * x0.size # zero lbound does not work, 14 lbound does not work
 
 # it seems like slsqp has trouble with bounds, so must use trust approach
 # do not use method='SLSQP', let it choose , options={'iprint': 2, 'disp': True}
@@ -507,53 +462,102 @@ def targs(x, xmat, targets):
     whs = x.reshape((xmat.shape[0], targets.shape[0]))
     return np.dot(whs.T, xmat)
 
-def f(x, xmat, targets, objscale):
+def get_diff_weights(geotargets, goal=100):
+    """
+    difference weights - a weight to be applied to each target in the
+      difference function so that it hits its goal
+      set the weight to 1 if the target value is zero
+
+    do this in a vectorized way
+    """
+
+    # avoid divide by zero or other problems
+
+    # numerator = np.full(geotargets.shape, goal)
+    # with np.errstate(divide='ignore'):
+    #     dw = numerator / geotargets
+    #     dw[geotargets == 0] = 1
+
+    goalmat = np.full(geotargets.shape, goal)
+    with np.errstate(divide='ignore'):  # turn off divide-by-zero warning
+        diff_weights = np.where(geotargets != 0, goalmat / geotargets, 1)
+
+    return diff_weights
+
+def f(x, xmat, targets, objscale, diff_weights):
     whs = x.reshape((xmat.shape[0], targets.shape[0]))
     diffs = np.dot(whs.T, xmat) - targets
-    # diffs = diffs * diff_weights
+    diffs = diffs * diff_weights
     obj = np.square(diffs).sum() * objscale
     return(obj)
 
 # define gradient of objective function
 gfn = grad(f)
+hfn = grad(gfn)
 
+egfn = egrad(f)
+ehfn = egrad(egfn)
+
+# convert the problem above
+p.targets = targets
+p.xmat = xmat
+p.h = p.xmat.shape[0]
+p.s = p.targets.shape[0]
+p.wh = wh
+
+pufsums.query('HT2_STUB==9')[targvars] / targets.sum(axis=0)
 
 p = mtp.Problem(h=1000, s=20, k=10)
+p = mtp.Problem(h=4000, s=20, k=10)
+p = mtp.Problem(h=10000, s=50, k=10)
+p = mtp.Problem(h=30000, s=50, k=20)
+
+diff_weights = get_diff_weights(p.targets)
 
 A2 = lil_matrix((p.h, p.h * p.s))
 for i in range(0, p.h):
     A2[i, range(i*p.s, i*p.s + p.s)] = 1
 A2
-b=A2.todense()
+# b=A2.todense()
+A2 = A2.tocsr()
 lincon2 = sp.optimize.LinearConstraint(A2, p.wh, p.wh)
+lincon2 = sp.optimize.LinearConstraint(A2, p.wh*.98, p.wh*1.02)
 
-bnds = sp.optimize.Bounds(0, np.inf)
 # objscale = 1e-6
-xcheck = np.full(p.whs.size, np.mean(p.wh))
-objscale = 1 / f(xcheck, p.xmat, p.targets, 1) * 1e4
+wsmean = np.mean(p.wh) / p.targets.shape[0]
+wsmin = np.min(p.wh) / p.targets.shape[0]
+wsmax = np.max(p.wh)  # no state can get more than all of the national weight
+xcheck = np.full(p.h * p.s, wsmean)
+# xcheck = np.full(p.whs.size, 1)
+objscale = 1 / f(xcheck, p.xmat, p.targets, objscale=1, diff_weights=diff_weights) * 1e4
+#  objscale = 1
 objscale
-f(xcheck, p.xmat, p.targets, objscale)
+f(xcheck, p.xmat, p.targets, objscale, diff_weights)
 
-x0 = np.full(p.whs.size, 0)
-x0 = np.full(p.whs.size, 1)
-x0 = np.full(p.whs.size, np.mean(p.wh))
+# bnds = sp.optimize.Bounds(0, np.inf)
+bnds = sp.optimize.Bounds(wsmin / 10, wsmax * 10)
 
-f(x0, p.xmat, p.targets, objscale)
-
-x0 = np.full(p.whs.size, np.mean(p.wh))
+x0 = np.full(p.h * p.s, 1)
+# x0 = np.full(p.h * p.s, wsmean)
+x0 = g.whs_opt.flatten()
+x0 = iwhs
 res = minimize(f, x0,
                method='trust-constr',
-               # method='SLSQP',
                bounds=bnds,
                constraints=lincon2,
-               jac=gfn,
-               args=(p.xmat, p.targets, objscale),
-               options={'verbose': 2})
+               jac=egfn,
+               hess=ehfn,
+               args=(p.xmat, p.targets, 1, diff_weights),
+               options={ 'maxiter': 500, 'verbose': 2, 'gtol': 1e-4, 'xtol': 1e-4})
 
-res2
+wpdiff =(A2.dot(res.x) - p.wh) / p.wh * 100  # sum of state weights minus national weights
+tpdiff = (targs(res.x, p.xmat, p.targets) - p.targets) / p.targets * 100  # pct diff
+np.round(np.quantile(wpdiff, (0, .25, .5, .75, 1)), 2)
+np.round(np.quantile(tpdiff, (0, .25, .5, .75, 1)), 2)
+np.round(tpdiff, 2)
+np.quantile(res.x, (0, .25, .5, .75, 1))
 
-res = res2
-res = res3
+res.execution_time / 60
 res.fun
 res.jac
 res.message
@@ -564,29 +568,6 @@ res.status
 res.x
 res.x.min()
 res.x.max()
-
-np.round(A2.dot(res.x) - p.wh, 1)  # sum of state weights minus national weights
-# targs(res.x, p.xmat, p.targets) - p.targets  # calculated targets minus targets
-np.round((targs(res.x, p.xmat, p.targets) - p.targets) / p.targets * 100, 4)  # pct diff
-
-res2.message
-res3.message
-res2.x
-res2.x.min()
-res2.x.max()
-
-
-# compare to p.whs
-p.whs
-res.x.reshape(p.whs.shape)
-gx.whs_opt
-
-out, fx, its, imode = fmin_slsqp(f, x0, args=(p.xmat, p.targets), iprint=2)
-dir(ans)
-dir(out)
-type(out)
-out.out
-out.fx
 
 # res = minimize(rosen, x0, method='SLSQP', jac=rosen_der,
 #                constraints=[eq_cons, ineq_cons], options={'ftol': 1e-9, 'disp': True},
