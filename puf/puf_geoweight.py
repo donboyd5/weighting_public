@@ -205,11 +205,44 @@ ehfn = egrad(egfn) # this is just the diagonal of the hessian!!
 
 
 # %% practice and test on toy problems
+
+# vector product approach
+# https://github.com/scipy/scipy/issues/8644
+
 p = mtp.Problem(h=6, s=3, k=2)
 # p = mtp.Problem(h=1000, s=20, k=10)
 # p = mtp.Problem(h=4000, s=20, k=10)
 # p = mtp.Problem(h=10000, s=50, k=10)
 # p = mtp.Problem(h=30000, s=50, k=20)
+
+# import scipy.sparse as sps
+
+# # A is the matrix
+# n = A.shape[0]
+
+# # Define H1
+# def H1(x):
+#     # Create matvec function
+#     def matvec(p):
+#         return A.T.dot(A.dot(p))
+#     return scipy.sparse.linalg.LinearOperator((n, n), matvec=matvec)
+
+# # Define H2
+# H2 = BFGS()
+
+# def hessp(x, p):
+#     return H1(x).dot(p) + H2(x).dot(p)
+
+# minimize(f, x0, jac=jac, hessp=hessp, method='trust-ncg'...)
+# also see this: https://justindomke.wordpress.com/2009/01/17/hessian-vector-products/
+# approximation:  H(x)v ~ [g(x+rv) - g(x - rv)] / 2r
+def hesspfn(x, p, xmat, targets, objscale, diff_weights):
+    # approximation for product of Hessian H and an arbitrary vector p
+    r = .01
+    g1 = gfun(x + r*p, xmat, targets, objscale, diff_weights)
+    g2 = gfun(x - r*p, xmat, targets, objscale, diff_weights)
+    Hp = (g1 + g2) / (2 * r)
+    return Hp
 
 xmat = p.xmat
 wh = p.wh
@@ -248,9 +281,42 @@ x0 = np.multiply(x0, wh.reshape(x0.shape[0], 1)).flatten()
 np.square(np.round(x0.reshape((h, s)).sum(axis=1) - wh, 2)).sum()
 
 f(x0, xmat, targets, objscale, diff_weights)
+
 diff_weights = np.ones(targets.shape)
+
 def hessfn(x, xmat, targets, objscale, diff_weights):
-    return hmat
+    return hmat_sparse
+
+hmat_sparse = sp.sparse.csr_matrix(hmat)
+
+hesvals = 2 * np.dot(xmat, xmat.T)  # djb this is the key
+hesvals.shape
+hmat_sparse = lil_matrix((h *s, h * s))
+hmat_sparse.shape
+# look for a faster way to do this next for loop
+for valrow in range(0, hesvals.shape[0]):
+    if(valrow % 100 == 0):
+        print(valrow)
+    cols = range(valrow * s, valrow * s + s)
+    for valcol in range(0, hesvals.shape[1]):
+        rows = range(valcol * s, valcol * s + s)
+        hmat_sparse[rows, cols] = hesvals[valrow, valcol]
+
+# coo_matrix((data, (i, j)), [shape=(M, N)])
+# to construct from three arrays:
+# data[:] the entries of the matrix, in any order
+# i[:] the row indices of the matrix entries
+# j[:] the column indices of the matrix entries
+
+hesvals = 2 * np.dot(xmat, xmat.T)  # djb this is the key
+hmat = np.zeros((h * s, h * s))
+# slow fill
+for valrow in range(0, hesvals.shape[0]):
+    cols = range(valrow * s, valrow * s + s)
+    for valcol in range(0, hesvals.shape[1]):
+        rows = range(valcol * s, valcol * s + s)
+        hmat[rows, cols] = hesvals[valrow, valcol]
+
 hessfn(x0, xmat, targets, objscale, diff_weights)
 
 res = minimize(f, x0,
@@ -258,12 +324,25 @@ res = minimize(f, x0,
                bounds=bnds,
                constraints=lincon,  # lincon lincon_feas
                jac=gfun,
-               hess='2-point', # hessfn '2-point',  # 2-point 3-point
+               # hess=hessfn, # hessfn '2-point',  # 2-point 3-point
+               hessp=hesspfn,
                args=(xmat, targets, 1, diff_weights),
-               options={'maxiter': 50, 'verbose': 2,
+               options={'maxiter': 100, 'verbose': 2,
                         'gtol': 1e-4, 'xtol': 1e-4,
                         'initial_tr_radius': 1,  # default 1
-                        'factorization_method': 'AugmentedSystem'})  # default AugmentedSystem NormalEquation
+                        'factorization_method': 'AugmentedSystem'})  # default AugmentedSystem NormalEquationc
+
+# 2-point |  22   |  18   |  142  | +1.7339e-10 | 2.22e+05 | 5.95e-05 | 2.27e-13 |
+# `gtol` termination condition is satisfied.
+# Number of iterations: 22, function evaluations: 18, CG iterations: 142, optimality: 5.95e-05, constraint violation: 2.27e-13, execution time: 1.3e+01 s.
+
+# analytic dense |  14   |  10   |  63   | +6.9278e-11 | 2.21e+05 | 4.58e-05 | 1.71e-13 |
+# `gtol` termination condition is satisfied.
+# Number of iterations: 14, function evaluations: 10, CG iterations: 63, optimality: 4.58e-05, constraint violation: 1.71e-13, execution time: 1.4e+01 s.
+# `gtol` termination condition is satisfied.
+
+# analytic sparse |  14   |  10   |  63   | +6.9278e-11 | 2.21e+05 | 4.58e-05 | 1.71e-13 |
+# Number of iterations: 14, function evaluations: 10, CG iterations: 63, optimality: 5.14e-05, constraint violation: 1.71e-13, execution time: 6e+01 s.
 
 wpdiff =(A.dot(res.x) - wh) / wh * 100  # sum of state weights minus national weights
 tpdiff = (targs(res.x, xmat, targets) - targets) / targets * 100  # pct diff
@@ -760,7 +839,7 @@ x0.shape
 np.square(np.round(x0.reshape((h, s)).sum(axis=1) - wh, 2)).sum()
 # end verification
 
-res = minimize(f, x0,
+res = minimize(f, res.x,
                method='trust-constr',
                bounds=bnds,
                constraints=lincon,  # lincon lincon_feas
@@ -769,9 +848,10 @@ res = minimize(f, x0,
                # hess=SR1(),
                # hess=ediag_fn,
                # hess=sp.optimize.SR1(),
-               hess='2-point',  # 2-point 3-point cs
+               # hess='2-point',  # 2-point 3-point cs
+               hessp = hesspfn,
                args=(xmat, targets, 1, diff_weights),
-               options={'maxiter': 500, 'verbose': 2,
+               options={'maxiter': 750, 'verbose': 2,
                         'gtol': 1e-4, 'xtol': 1e-4,
                         'initial_tr_radius': 1,  # default 1
                         'factorization_method': 'AugmentedSystem'})  # default AugmentedSystem NormalEquation
