@@ -17,13 +17,8 @@ https://github.com/ray-project/ray
 # Notes about eclipse
 
 
-# %% set working directory if not already set
-import os
-os.getcwd()
-os.chdir('C:/programs_python/weighting')
-os.getcwd()
-
 # %% imports
+import os
 import sys
 import requests
 import pandas as pd
@@ -31,18 +26,40 @@ import numpy as np
 import src.microweight as mw
 import src.make_test_problems as mtp
 
+import scipy as sp
+from scipy.optimize import fmin_slsqp  # no longer needed
+from scipy.optimize import minimize
+from scipy.optimize import LinearConstraint
+from scipy.optimize import show_options
+from scipy.sparse import lil_matrix
+from scipy.optimize import BFGS
+from scipy.optimize import SR1
+
+import cvxpy as cp  # probably won't use
+
+import autograd.numpy as np  # stop this as soon as practical as use ag.numpy
+from autograd import grad
+from autograd import hessian
+from autograd import elementwise_grad as egrad  # for functions that vectorize over inputs
+
+import numdifftools as nd
+
+
+# %% set working directory if not already set
+os.getcwd()
+os.chdir('C:/programs_python/weighting')
+os.getcwd()
+
 
 # %% constants
 WEBDIR = 'https://www.irs.gov/pub/irs-soi/'
 DOWNDIR = 'C:/programs_python/weighting/puf/downloads/'
 DATADIR = 'C:/programs_python/weighting/puf/data/'
-# PUFDIR = 'C:/programs_python/weighting/puf/'
 HDFDIR = 'C:/programs_python/weighting/puf/ignore/'
 
 HT2_2018 = "18in55cmagi.csv"
 
-# agi stubs
-# AGI groups to target separately
+# AGI stubs
 IRS_AGI_STUBS = [-9e99, 1.0, 5e3, 10e3, 15e3, 20e3, 25e3, 30e3, 40e3, 50e3,
                  75e3, 100e3, 200e3, 500e3, 1e6, 1.5e6, 2e6, 5e6, 10e6, 9e99]
 HT2_AGI_STUBS = [-9e99, 1.0, 10e3, 25e3, 50e3, 75e3, 100e3,
@@ -124,6 +141,252 @@ def constraints(x, wh, xmat):
     return np.dot(x * wh, xmat)
 
 
+def targs(x, xmat, targets):
+    whs = x.reshape((xmat.shape[0], targets.shape[0]))
+    return np.dot(whs.T, xmat)
+
+
+def get_diff_weights(geotargets, goal=100):
+    """
+    difference weights - a weight to be applied to each target in the
+      difference function so that it hits its goal
+      set the weight to 1 if the target value is zero
+
+    do this in a vectorized way
+    """
+
+    # avoid divide by zero warnings
+    goalmat = np.full(geotargets.shape, goal)
+    with np.errstate(divide='ignore'):  # turn off divide-by-zero warning
+        diff_weights = np.where(geotargets != 0, goalmat / geotargets, 1)
+
+    return diff_weights
+
+
+def f(x, xmat, targets, objscale, diff_weights):
+    whs = x.reshape((xmat.shape[0], targets.shape[0]))
+    diffs = np.dot(whs.T, xmat) - targets
+    diffs = diffs * diff_weights
+    obj = np.square(diffs).sum() * objscale
+    return(obj)
+
+
+def gfun(x, xmat, targets, objscale, diff_weights):
+    whs = x.reshape((xmat.shape[0], targets.shape[0]))
+    diffs = np.dot(whs.T, xmat) - targets
+    diffs_weighted2 = diffs * np.square(diff_weights)
+    grad = 2 * xmat.dot(diffs_weighted2.T)
+    return grad.flatten()
+
+
+def hfun(x, xmat, targets, objscale, diff_weights):
+    whs = x.reshape((xmat.shape[0], targets.shape[0]))
+    diffs = np.dot(whs.T, xmat) - targets
+    # diffs = diffs * diff_weights
+    grad = 2 * xmat.dot(diffs.T)
+    return grad.flatten()
+
+
+# def ediag_fn(x, xmat, targets, objscale, diff_weights):
+#     return ediag_vals  # global!!!
+
+
+# def hfn2(x, xmat, targets, objscale, diff_weights):
+#     return hvals2  # global!!!
+
+
+# %% automatic differentiation
+# define gradient of objective function
+gfn = grad(f)
+hfn = hessian(f)  # from autgrad so we can test vs analytic
+
+egfn = egrad(f)
+ehfn = egrad(egfn) # this is just the diagonal of the hessian!!
+
+
+# %% practice and test on toy problems
+p = mtp.Problem(h=6, s=3, k=2)
+# p = mtp.Problem(h=1000, s=20, k=10)
+# p = mtp.Problem(h=4000, s=20, k=10)
+# p = mtp.Problem(h=10000, s=50, k=10)
+# p = mtp.Problem(h=30000, s=50, k=20)
+
+xmat = p.xmat
+wh = p.wh
+targets = p.targets
+h = xmat.shape[0]
+s = targets.shape[0]
+k = targets.shape[1]
+
+diff_weights = get_diff_weights(targets)
+
+A = lil_matrix((h, h * s))
+for i in range(0, h):
+    A[i, range(i*s, i*s + s)] = 1
+A
+# b=A.todense()  # ok to look at dense version if small
+A = A.tocsr()  # csr format is faster for our calculations
+lincon = sp.optimize.LinearConstraint(A, wh, wh)
+
+wsmean = np.mean(wh) / targets.shape[0]
+wsmin = np.min(wh) / targets.shape[0]
+wsmax = np.max(wh)  # no state can get more than all of the national weight
+
+objscale = 1
+
+bnds = sp.optimize.Bounds(wsmin / 10, wsmax)
+
+# starting values (initial weights), as an array
+# x0 = np.full(h * s, 1)
+# x0 = np.full(p.h * p.s, wsmean)
+# initial weights that satisfy constraints
+x0 = np.ones((h, s)) / s
+x0 = np.multiply(x0, wh.reshape(x0.shape[0], 1)).flatten()
+
+
+# verify that starting values satisfy adding-up constraint
+np.square(np.round(x0.reshape((h, s)).sum(axis=1) - wh, 2)).sum()
+
+f(x0, xmat, targets, objscale, diff_weights)
+diff_weights = np.ones(targets.shape)
+def hessfn(x, xmat, targets, objscale, diff_weights):
+    return hmat
+hessfn(x0, xmat, targets, objscale, diff_weights)
+
+res = minimize(f, x0,
+               method='trust-constr',
+               bounds=bnds,
+               constraints=lincon,  # lincon lincon_feas
+               jac=gfun,
+               hess='2-point', # hessfn '2-point',  # 2-point 3-point
+               args=(xmat, targets, 1, diff_weights),
+               options={'maxiter': 50, 'verbose': 2,
+                        'gtol': 1e-4, 'xtol': 1e-4,
+                        'initial_tr_radius': 1,  # default 1
+                        'factorization_method': 'AugmentedSystem'})  # default AugmentedSystem NormalEquation
+
+wpdiff =(A.dot(res.x) - wh) / wh * 100  # sum of state weights minus national weights
+tpdiff = (targs(res.x, xmat, targets) - targets) / targets * 100  # pct diff
+np.round(np.quantile(wpdiff, (0, .25, .5, .75, 1)), 2)
+np.round(np.quantile(tpdiff, (0, .25, .5, .75, 1)), 2)
+np.round(tpdiff, 2)
+np.quantile(res.x, (0, .25, .5, .75, 1))
+
+
+# %% test the hessian on the problem above
+def hfun(x, xmat, targets, objscale, diff_weights):
+    whs = x.reshape((xmat.shape[0], targets.shape[0]))
+    diffs = np.dot(whs.T, xmat) - targets
+    # diffs = diffs * diff_weights
+    grad = 2 * xmat.dot(diffs.T)
+    return grad.flatten()
+
+
+dw = np.ones(targets.shape)
+dw_alt = dw * np.array([1, 2, 3, 4, 5, 6]).reshape((3, 2))
+check = np.dot(dw_alt, dw_alt.T)
+xbak = x0
+2.76 * 2.76
+x0 = np.ones(x0.size) * 5
+rats = np.round(hfn(x0, xmat, targets, objscale, dw_alt) / hfn(x0, xmat, targets, objscale, dw), 2)
+np.unique(rats)
+
+f(x0, xmat, targets, objscale, dw)
+gfun(x0, xmat, targets, objscale, dw)
+
+# autograd hessian with diff weights that are 1
+hvals = hfn(x0, xmat, targets, objscale, dw)
+# hfn(x0*2, xmat, targets, objscale, dw) hessian is constant!
+hvals.shape  # (s*h, s*h)
+hvals
+hvals[0:6, 0:4]
+len(np.unique(hvals))  # 37 unique: s*h / 2 + zeroval
+len(np.unique(np.round(hvals, 3)))  # s * h 22
+# there appear to be 15 unique values in the 18 rows??
+
+# hfn(x0, xmat, targets, objscale, dw3) / hfn(x0, xmat, targets, objscale, dw)
+# times the square of diff_weights
+
+# autograd hessian with diffweights that are not 1
+hvals2 = hfn(x0, xmat, targets, objscale, diff_weights)
+np.round(hvals2 / hvals, 8)
+np.round(diff2, 8)
+np.round(diff_weights, 8)
+
+diff_weights * 1e3
+
+hratios = hvals2 / hvals
+np.unique(np.round(diff2, 8))
+np.unique(np.round(hvals2 / hvals, 8))
+
+
+np.round(hvals2, 3)[0:6, 0:6]
+np.round(hesvals2, 3)
+
+# my hessian
+hesvals = 2 * np.dot(xmat, xmat.T)  # djb this is the key
+hesvals # hessvals has 1 row per person
+hesvals.shape
+diff2 = np.square(diff_weights).flatten()
+hesvals2 = hesvals * diff2
+hesvals * diff2.T
+hesvals2 = hesvals * diff2[:, None]
+np.round(hesvals)
+np.round(hesvals2, 3)
+hesvals * np.square(diff_weights)[:, None]
+A * b[:, None]
+len(np.unique(hesvals))  # s*h / 2 unique values
+# with 10,000 h and 50 s we appear to have 50,004,991 unique values
+# I would have guessed s * h / 2 = 250k maybe plus the diagonal, or
+# d = s * h
+# (s * h - d) / 2 + d or (500k / 2) + maybe something?
+#  500k variables so the hessian is 250 elements, 500k in a row
+#
+
+np.round(hesvals, 1)
+# these vals fit into hessian as follows, one hesvec row at a time
+# which diag, which cols -- note the repeats
+#  0, 0:2x  1, 0:2x  2, 0:2x  3, 0:2x  4, 0:2x  5, 0:2
+# -1, 3:5x  0, 3:5x  1, 3:5x  2, 3:5x  3, 3:5x  4, 3:5  # 1st item again
+# -2, 6:8x  -1, 6:8x  0, 6:8x  1, 6:8x  2, 6:8x 3, 6:8
+# -3, 9:11
+# -4, 12:14
+# -5, 15:17
+
+# so now we know how to fill the full hessian, later worry
+# about just a triangle, then worry about unique values
+# each row of hesvec fills as follows:
+# row 0: fills cols 0:2, starting rows 0:2, 3:5, 6:8, etc
+# row 1:  cols 3:5, same sets of rows
+# row5: cols 15:17, same sets of rows
+# that will get us the full hessian
+
+# slow fill
+hmat = np.zeros((h * s, h * s))
+# * np.square(diff_weights).flatten()
+for valrow in range(0, hesvals.shape[0]):
+    cols = range(valrow * s, valrow * s + s)
+    print(valrow, cols)
+    for valcol in range(0, hesvals.shape[1]):
+        rows = range(valcol * s, valcol * s + s)
+        print(rows)
+        # hmat[rows, cols] = np.round(hesvals[valrow, valcol], 1)
+        hmat[rows, cols] = hesvals[valrow, valcol]
+
+
+hmat = np.zeros((h * s, h * s))
+cols = range(3, 6)
+rows = range(3, 6)
+row = 2
+hmat[rows, cols] = 1
+
+hmat[0:7, 0:7]
+np.round(hvals[0:7, 0:7], 1)
+
+np.square(hmat - hvals).sum()
+
+
+
 # %% ONETIME download Historical Table 2
 files = [HT2_2018]
 
@@ -168,6 +431,11 @@ h2stubs = pd.DataFrame([
     columns=['h2stub', 'h2range'])
 h2stubs
 # h2stubs.info()
+
+# create constants with state abbreviations
+STATES_DCOAPRUS = ht2.groupby('STATE').STATE.count().index.tolist()
+STATES = [x for x in STATES_DCOAPRUS if x not in ['DC', 'OA', 'PR', 'US']]
+len(STATES)
 
 
 # %% get reweighted national puf
@@ -280,7 +548,7 @@ pufsums / ht2sumsadj
 ht2_sub_adj = ht2_sub_adj.reset_index() # get indexes as columns
 
 
-# %% targvars and states definitions
+# %% choose a definition of targvars and targstates
 targvars = ['nret_all', 'nret_mars1', 'nret_mars2', 'c00100', 'e00200',
             'e00300', 'e00600']
 targvars + ['HT2_STUB']
@@ -300,11 +568,11 @@ targstates = ['AK', 'AL', 'AR', 'CA', 'CT', 'FL', 'GA', 'MD',
               'MA', 'MN', 'NH', 'NJ', 'NY', 'OH', 'OR', 'PA', 'TN', 'TX', 'VT', 'WA']
 
 
-# %% geoweight just one stub
+# %% prepare a single stub for geoweighting
 pufsub.columns
 pufsub[['HT2_STUB', 'pid']].groupby(['HT2_STUB']).agg(['count'])
 
-stub = 6
+stub = 8
 pufstub = pufsub.query('HT2_STUB == @stub')[['pid', 'HT2_STUB', 'wtnew'] + targvars]
 pufstub
 
@@ -350,7 +618,6 @@ start_values = pd.merge(start_values, ht2shares, on='HT2_STUB')
 start_values['iwhs'] = start_values['wtnew'] * start_values['share']
 start_values  # good, everything is in the right order
 
-
 iwhs = start_values.iwhs.to_numpy()  # initial weights, households and states
 
 wh = pufstub.wtnew.to_numpy()
@@ -369,6 +636,8 @@ targets
 
 # scale targets by ratio of pufsums to HT2
 
+
+# %% poisson geo weighting
 g = mw.Microweight(wh, xmat, targets)
 # g = mw.Microweight(wh, xmat, targets_scaled)
 
@@ -401,23 +670,22 @@ g.geotargets_opt
 
 g.geotargets_opt.sum(axis=0)
 
-
 np.round(g.result.fun, 1)
 np.round(g.result.fun.reshape(targets.shape), 1)
 round(ht2stub_adj.div(ht2stub_adj.nret_all, axis=0), 1)
 # np.round(g.result.fun.reshape(7, 5), 1)
 
-# %% let's try fmin_slsqp, completely different way
-# https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.fmin_slsqp.html#scipy.optimize.fmin_slsqp
-# minimize the least squares diff using the result above as starting point
+
+# %% constrained least squares geo weighting
+# minimize the least squares diff, possibly using the result above as starting point
 # with weight adding-up constraint
+
+# https://docs.scipy.org/doc/scipy/reference/optimize.minimize-trustconstr.html#optimize-minimize-trustconstr
+
+# DON'T USE fmin_slsqp - DOES NOT HANDLE CONSTRAINTS WELL
+# https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.fmin_slsqp.html#scipy.optimize.fmin_slsqp
 # https://www.programcreek.com/python/example/114542/scipy.optimize.fmin_slsqp
 
-import scipy as sp
-from scipy.optimize import fmin_slsqp
-from scipy.optimize import minimize
-from scipy.optimize import LinearConstraint
-from scipy.optimize import show_options
 show_options(solver="minimize", method="trust-ncg")
 
 # constraints
@@ -436,169 +704,15 @@ show_options(solver="minimize", method="trust-ncg")
 # 0 0 0, 1 1 1, 000000000000
 # 000, 000, 111, 0000000000
 
-from scipy.sparse import lil_matrix
-# from scipy.sparse.linalg import spsolve
-# from numpy.linalg import solve, norm
-# from numpy.random import rand
-
-
-import autograd.numpy as np
-# import autograd.numpy.random as npr
-# import autograd.scipy.signal
-from autograd import grad
-from autograd import hessian
-from autograd import elementwise_grad as egrad  # for functions that vectorize over inputs
-
 # lb <= A.dot(x) <= ub
 # x is whs.flatten()
 # lb, ub, are wh
 # so we have h rows in A, whs.size columns in A
 
-# https://docs.scipy.org/doc/scipy/reference/optimize.minimize-trustconstr.html#optimize-minimize-trustconstr
-# fmin_slsqp(f, x0, args=(p.xmat, p.targets), iprint=2)
-# bnds = [(0, 30) for _ in x0]
-# bnds = [(13, 30.0)] * x0.size # zero lbound does not work, 14 lbound does not work
-
-# it seems like slsqp has trouble with bounds, so must use trust approach
-# do not use method='SLSQP', let it choose , options={'iprint': 2, 'disp': True}
-
-
-def targs(x, xmat, targets):
-    whs = x.reshape((xmat.shape[0], targets.shape[0]))
-    return np.dot(whs.T, xmat)
-
-
-def get_diff_weights(geotargets, goal=100):
-    """
-    difference weights - a weight to be applied to each target in the
-      difference function so that it hits its goal
-      set the weight to 1 if the target value is zero
-
-    do this in a vectorized way
-    """
-
-    # avoid divide by zero or other problems
-
-    # numerator = np.full(geotargets.shape, goal)
-    # with np.errstate(divide='ignore'):
-    #     dw = numerator / geotargets
-    #     dw[geotargets == 0] = 1
-
-    goalmat = np.full(geotargets.shape, goal)
-    with np.errstate(divide='ignore'):  # turn off divide-by-zero warning
-        diff_weights = np.where(geotargets != 0, goalmat / geotargets, 1)
-
-    return diff_weights
-
-
-def f(x, xmat, targets, objscale, diff_weights):
-    whs = x.reshape((xmat.shape[0], targets.shape[0]))
-    diffs = np.dot(whs.T, xmat) - targets
-    diffs = diffs * diff_weights
-    obj = np.square(diffs).sum() * objscale
-    return(obj)
-
-def gfun(x, xmat, targets, objscale, diff_weights):
-    whs = x.reshape((xmat.shape[0], targets.shape[0]))
-    diffs = np.dot(whs.T, xmat) - targets
-    # diffs = diffs * diff_weights
-    grad = 2 * xmat.dot(diffs.T)
-    return grad.flatten()
-
-def gfun2(x, xmat, targets, objscale, diff_weights):
-    whs = x.reshape((xmat.shape[0], targets.shape[0]))
-    diffs = np.dot(whs.T, xmat) - targets
-    diffs2 = diffs * np.square(diff_weights)
-    grad = 2 * xmat.dot(diffs2.T)
-    return grad.flatten()
-
-
-def hfun(x, xmat, targets, objscale, diff_weights):
-    whs = x.reshape((xmat.shape[0], targets.shape[0]))
-    diffs = np.dot(whs.T, xmat) - targets
-    # diffs = diffs * diff_weights
-    grad = 2 * xmat.dot(diffs.T)
-    return grad.flatten()
-
-
-# define gradient of objective function
-gfn = grad(f)
-hfn = grad(gfn)
-hfn = hessian(f)
-
-egfn = egrad(f)
-ehfn = egrad(egfn) # this is just the diagonal of the hessian!!
-# it is constant so get its value at a point and
-ediag_vals = ehfn(iwhs, xmat, targets, objscale, diff_weights)
-def ediag_fn(x, xmat, targets, objscale, diff_weights):
-    return ediag_vals
-
-
-import numdifftools as nd
-H = nd.Hessian(f)
-hvals = H(x0, xmat, targets, objscale, diff_weights)
-hvals2 = hfn(x0, xmat, targets, objscale, diff_weights)
-
-
-def hfn2(x, xmat, targets, objscale, diff_weights):
-    return hvals2
-
-
-hvals.shape # (h x s, h xs) 60, 60
-hvals[0:8, 0:3]
-# hest = 2 * np.square(xmat).sum(axis=1)
-hest = 2 * np.dot(xmat, xmat.T)
-np.round(hvals[0:8,0:5], 2)
-np.round(hvals2[0:8,0:5], 2)
-hest
-np.round(hvals.diagonal(), 1)
-np.round(hest.diagonal(), 1)
-np.multiply(xmat, xmat)
-
-hest.shape
-hvals.shape
-np.round(hest[0:5, 0:5], 1)
-np.round(hvals[0:12, 0:4], 1)
-
-ma = np.identity(3)
-
-2 * np.square(xmat[0:2, 0:2])
-
-2 * np.square(xmat).sum(axis=1)
-
-z1 = egfn(x0, xmat, targets, objscale, diff_weights)
-z2 = gfun(x0, xmat, targets, objscale, diff_weights)
-z1.shape
-z2.shape
-z1.sum()
-z2.sum()
-np.square(z2 - z1).sum()
-
-
-
-# p = mtp.Problem(h=20, s=3, k=2)
-# p = mtp.Problem(h=1000, s=20, k=10)
-# p = mtp.Problem(h=4000, s=20, k=10)
-# p = mtp.Problem(h=10000, s=50, k=10)
-# p = mtp.Problem(h=30000, s=50, k=20)
-
-# convert the problem above
-# we already have targets, xmat, and wh
-# p.targets = targets
-# p.xmat = xmat
-xmat = p.xmat
-wh = p.wh
-targets = p.targets
-# iwhs = start_values.iwhs.to_numpy()  # initial weights, households and states
-x0 = np.ones((h, s)) / s
-x0 = np.multiply(x0, wh.reshape(x0.shape[0], 1)).flatten()
-
 h = xmat.shape[0]
 s = targets.shape[0]
 
 pufsums.query('HT2_STUB==@stub')[targvars] / targets.sum(axis=0)
-
-
 
 diff_weights = get_diff_weights(targets)
 # diff_weights = np.ones(targets.shape)
@@ -608,7 +722,7 @@ A = lil_matrix((h, h * s))
 for i in range(0, h):
     A[i, range(i*s, i*s + s)] = 1
 A
-# b=A.todense()
+# b=A.todense()  # ok to look at dense version if small
 A = A.tocsr()  # csr format is faster for our calculations
 lincon = sp.optimize.LinearConstraint(A, wh, wh)
 # keep_feasible doesn't seem to matter
@@ -629,29 +743,12 @@ objscale
 f(xcheck, xmat, targets, objscale, diff_weights)
 f(iwhs, xmat, targets, objscale, diff_weights)
 
-# gradient
-z1 = egfn(x0, xmat, targets, objscale, diff_weights)
-z2 = gfun(x0, xmat, targets, objscale, diff_weights)
-z3 = gfun2(x0, xmat, targets, objscale, diff_weights)
-z1.shape
-z2.shape
-z1.sum()
-z2.sum()
-z3.sum()
-np.square(z3 - z1).sum()
-
-
 # bnds = sp.optimize.Bounds(0, np.inf)
-bnds = sp.optimize.Bounds(wsmin / 10, wsmax * 10)
+bnds = sp.optimize.Bounds(wsmin / 10, wsmax)
 
-x0 = np.full(h * s, 1)
-# x0 = np.full(p.h * p.s, wsmean)
-x0 = g.whs_opt.flatten()
+# x0 = np.full(h * s, 1)
+# x0 = g.whs_opt.flatten()
 x0 = iwhs
-# https://docs.scipy.org/doc/scipy/reference/optimize.minimize-trustconstr.html#optimize-minimize-trustconstr
-
-x0 = np.ones((h, s)) / s
-x0 = np.multiply(x0, wh.reshape(x0.shape[0], 1)).flatten()
 
 xmat.shape
 targets.shape
@@ -659,18 +756,15 @@ diff_weights.shape
 bnds
 x0.shape
 
-tmp = x0.reshape((h, s)).sum(axis=1)
-tmp.shape
-wh
-
-from scipy.optimize import BFGS
-from scipy.optimize import SR1
+# verify that starting values satisfy adding-up constraint
+np.square(np.round(x0.reshape((h, s)).sum(axis=1) - wh, 2)).sum()
+# end verification
 
 res = minimize(f, x0,
                method='trust-constr',
                bounds=bnds,
                constraints=lincon,  # lincon lincon_feas
-               jac=gfun2, # egfn, # gfun, # egfn
+               jac=gfun, # egfn, # gfun, # egfn
                # hess=ehfn,
                # hess=SR1(),
                # hess=ediag_fn,
@@ -686,6 +780,11 @@ res = minimize(f, x0,
 
 # The maximum number of function evaluations is exceeded.
 # Number of iterations: 500, function evaluations: 518, CG iterations: 500, optimality: 9.66e-02, constraint violation: 6.82e-13, execution time: 2.9e+03 s.
+
+# |  74   |  70   | 39372 | +3.9494e-03 | 4.32e+07 | 9.96e-05 | 4.55e-13 |
+
+# `gtol` termination condition is satisfied.
+# Number of iterations: 74, function evaluations: 70, CG iterations: 39372, optimality: 9.96e-05, constraint violation: 4.55e-13, execution time: 2.3e+04 s.
 
 wpdiff =(A.dot(res.x) - wh) / wh * 100  # sum of state weights minus national weights
 tpdiff = (targs(res.x, xmat, targets) - targets) / targets * 100  # pct diff
@@ -727,10 +826,53 @@ res.x.max()
 #  8 : Positive directional derivative for linesearch
 #  9 : Iteration limit reached
 
+
+# %% play -- hessian
+
+# rough -- define hessian, etc
+# it is constant so get its value at a point and
+ediag_vals = ehfn(iwhs, xmat, targets, objscale, diff_weights)
+
+H = nd.Hessian(f)
+hvals = H(x0, xmat, targets, objscale, diff_weights)
+hvals2 = hfn(x0, xmat, targets, objscale, diff_weights)
+
+hvals.shape # (h x s, h xs) 60, 60
+hvals[0:8, 0:3]
+# hest = 2 * np.square(xmat).sum(axis=1)
+hest = 2 * np.dot(xmat, xmat.T)
+np.round(hvals[0:8,0:5], 2)
+np.round(hvals2[0:8,0:5], 2)
+hest
+np.round(hvals.diagonal(), 1)
+np.round(hest.diagonal(), 1)
+np.multiply(xmat, xmat)
+
+hest.shape
+hvals.shape
+np.round(hest[0:5, 0:5], 1)
+np.round(hvals[0:12, 0:4], 1)
+
+ma = np.identity(3)
+
+2 * np.square(xmat[0:2, 0:2])
+
+2 * np.square(xmat).sum(axis=1)
+
+z1 = egfn(x0, xmat, targets, objscale, diff_weights)
+z2 = gfun(x0, xmat, targets, objscale, diff_weights)
+z1.shape
+z2.shape
+z1.sum()
+z2.sum()
+np.square(z2 - z1).sum()
+
+
+
 # %% cvxpy
 # https://www.cvxpy.org/
 
-import cvxpy as cp
+
 
 def diffs(x, xmat, targets):
     whs = x.reshape((xmat.shape[0], targets.shape[0]))
@@ -848,7 +990,7 @@ g.result.cost  # objective function value at optimum
 g.result.message
 
 
-# %% geoweight
+# %% geoweight testing and practice
 mtp.Problem.help()
 
 p = mtp.Problem(h=10000, s=50, k=10)
@@ -937,3 +1079,13 @@ VAR_CROSSWALK = {
     "e00700_n": "N00700",  # SALT number
 }
 
+
+# %% OLD items
+
+
+def gfun_old(x, xmat, targets, objscale, diff_weights):
+    whs = x.reshape((xmat.shape[0], targets.shape[0]))
+    diffs = np.dot(whs.T, xmat) - targets
+    # diffs = diffs * diff_weights
+    grad = 2 * xmat.dot(diffs.T)
+    return grad.flatten()
