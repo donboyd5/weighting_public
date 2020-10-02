@@ -118,22 +118,24 @@ p = mtp.Problem(h=1000, s=20, k=8)
 p = mtp.Problem(h=10000, s=40, k=15)
 p = mtp.Problem(h=40000, s=50, k=30)
 p = mtp.Problem(h=200000, s=50, k=30)
+p = mtp.Problem(h=int(1e6), s=50, k=100)
 
 p.wh
 p.xmat
 p.xmat.shape
 p.targets
 
+# pick a state row (zero based) for targets
+st = 7
+
 natsums = p.targets.sum(axis=0)  # national sum for each variable
 shares = np.multiply(p.targets, 1 / natsums)
 shares.sum(axis=0)
-shares[1, 0]
 
 npop = p.wh.sum()
-nsamp = npop / shares[1, 0]
+nsamp = npop * shares[st, 0]
 
-# use the state 1 (2nd row) as targets
-st = 1
+
 tsums = p.targets[st, ]  # .shape # (2, )
 # nsamp = tsums[0]  # treat the first variable as if it is a count
 tmeans = tsums / nsamp
@@ -155,7 +157,7 @@ covs2 = covs * tmeans[0] / covs.mean(axis=0)[0]
 covs2.mean(axis=0)
 tmeans
 
-covs.shape
+# covs.shape
 # covs2 = covs * shares[1, 0] # np.multiply(covs, )
 # covs2.shape
 # tcovs.shape  # 1, 2
@@ -180,74 +182,60 @@ l2_norm
 # data times weights
 check = np.multiply(covs2, weights4.reshape(weights4.size, 1))
 calcmeans = check.sum(axis=0) # ok, this hits the means
-calcmeans
-tmeans
+
+# compare means
+tmeans  # targets
+initmeans = covs2.mean(axis=0)  # initial means
+calcmeans  # after weighting
+np.square(initmeans - tmeans).sum()
 np.square(calcmeans - tmeans).sum()
 
 
-# %% try it out on a column of an agi stub
-
+# %% good agistub
 # assume we already have targets, wh, and xmat
 
-
+st = 6
 
 natsums = targets.sum(axis=0)  # national sum for each variable
-shares = np.multiply(targets, 1 / natsums)
-shares.sum(axis=0)
-shares[1, 0]
 
+wh = wh.reshape(wh.size, 1)
+wh_avg = wh.mean()
 npop = wh.sum()
-nsamp = npop / shares[1, 0]
+nsamp = targets[st, 0]  # treat first variable as a count for which we want shares
 
-# use the state 1 (2nd row) as targets
-st = 1
-tsums = targets[st, ]  # .shape # (2, )
-# nsamp = tsums[0]  # treat the first variable as if it is a count
-tmeans = tsums / nsamp
-tmeans
+# tmeans, used for target covariates, must be 2d array, so make tsums 2d array
+tsums = targets[st, ].reshape((1, tsums.size))  # must be 2d array (1, ntargs)
+tmeans = tsums / nsamp  # .reshape((1, tsums.size))  # must be 2d array (1, ntargs)
 
-# tcovs = tmeans.reshape((1, tmeans.size))
-
-# covs = np.multiply(p.xmat, p.wh.reshape(p.wh.size, 1))
-# covs2 = covs * shares[st, 0]
-
-# bw = p.wh.reshape((p.wh.size, 1)) / 3
-
-# p.xmat.shape  # 20, 2
-# covs = p.xmat
-covs = np.multiply(xmat, wh.reshape(wh.size, 1))
-covs.sum(axis=0)
-covs.mean(axis=0)
-covs2 = covs * tmeans[0] / covs.mean(axis=0)[0]
-covs2.mean(axis=0)
-tmeans
-
-# covs2 = covs * shares[1, 0] # np.multiply(covs, )
-# covs2.shape
-# tcovs.shape  # 1, 2
-# bw.shape
+covs = xmat * (wh / wh_avg)
+initmeans = covs.mean(axis=0)  # initial weighted means
 
 a = timer()
 weights, l2_norm = ec.maybe_exact_calibrate(
-    covariates=covs2, # 1 row per person
-    target_covariates=tmeans.reshape((1, tmeans.size)),   # tmeans
+    covariates=covs, # 1 row per person
+    target_covariates=tmeans,  # tcovs,
     # baseline_weights=bw,
-    # target_weights=np.array([[.25, .75]]), # make one target more important than another?
+    # target_weights=np.array([[1, 2, 3, 4, 3, 2, 1]]), # priority weights
     autoscale=True,
     objective=ec.Objective.ENTROPY
 )
 b = timer()
 b - a
 l2_norm
-# tmeans
-
-# covs2.sum(axis=0)
+np.quantile(weights, [0, .1, .25, .5, .75, .9, 1])
 
 # data times weights
 check = np.multiply(covs2, weights.reshape(weights.size, 1))
-calcmeans = check.sum(axis=0) # ok, this hits the means
-calcmeans
-tmeans
+calcmeans = check.sum(axis=0)  # ok, this hits the means
+
+# compare means
+tmeans  # targets
+initmeans  # initial means
+calcmeans  # after weighting
+np.square(initmeans - tmeans).sum()
 np.square(calcmeans - tmeans).sum()
 
+tsums
+initmeans * nsamp
+calcmeans * nsamp
 

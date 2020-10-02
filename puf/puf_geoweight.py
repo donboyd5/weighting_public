@@ -845,7 +845,7 @@ targstates = ['AK', 'AL', 'AR', 'CA', 'CT', 'FL', 'GA', 'MD',
 pufsub.columns
 pufsub[['HT2_STUB', 'pid']].groupby(['HT2_STUB']).agg(['count'])
 
-stub = 8
+stub = 4
 pufstub = pufsub.query('HT2_STUB == @stub')[['pid', 'HT2_STUB', 'wtnew'] + targvars]
 pufstub
 
