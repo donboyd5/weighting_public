@@ -11,6 +11,18 @@ https://stackoverflow.com/questions/1704401/is-there-a-simple-process-based-para
 https://towardsdatascience.com/10x-faster-parallel-python-without-python-multiprocessing-e5017c93cce1
 https://github.com/ray-project/ray
 
+Hessian vector products:
+    https://justindomke.wordpress.com/2009/01/17/hessian-vector-products/
+    http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.29.6143
+    https://arxiv.org/pdf/1611.03777.pdf
+    https://www.sciencedirect.com/science/article/pii/S0377042708006523
+    https://discuss.pytorch.org/t/hessian-vector-product-optimization/40717/4
+    https://github.com/scipy/scipy/issues/8644
+    https://stats.stackexchange.com/questions/368475/how-the-hessian-matrix-is-used-in-optimization-if-you-cant-invert-it
+
+Large scale least squares (not for this problem but for other uses):
+    https://scipy-cookbook.readthedocs.io/items/bundle_adjustment.html
+
 @author: donbo
 """
 
@@ -179,6 +191,11 @@ def gfun(x, xmat, targets, objscale, diff_weights):
     return grad.flatten()
 
 
+f_hvp = hvp(f)  # maybe I could put this inside of f_hvp_wrap but only call the first time?
+def f_hvp_wrap(x, p, xmat, targets, objscale, diff_weights):
+    return f_hvp(x, p, xmat=xmat, targets=targets, objscale=objscale, diff_weights=diff_weights)
+
+
 def hfun(x, xmat, targets, objscale, diff_weights):
     whs = x.reshape((xmat.shape[0], targets.shape[0]))
     diffs = np.dot(whs.T, xmat) - targets
@@ -187,8 +204,20 @@ def hfun(x, xmat, targets, objscale, diff_weights):
     return grad.flatten()
 
 
-# def ediag_fn(x, xmat, targets, objscale, diff_weights):
-#     return ediag_vals  # global!!!
+# minimize(f, x0, jac=jac, hessp=hessp, method='trust-ncg'...)
+# also see this: https://justindomke.wordpress.com/2009/01/17/hessian-vector-products/
+# approximation:  H(x)v ~ [g(x+rv) - g(x - rv)] / 2r
+def hesspfn(x, p, xmat, targets, objscale, diff_weights):
+    # approximation for product of Hessian H and an arbitrary vector p
+    r = 1e10
+    g1 = gfun(x + r*p, xmat, targets, objscale, diff_weights)
+    g2 = gfun(x - r*p, xmat, targets, objscale, diff_weights)
+    Hp = (g1 + g2) / (2 * r)
+    return Hp
+
+
+def ediag_fn(x, xmat, targets, objscale, diff_weights):
+    return ediag_vals  # global!!!
 
 
 # def hfn2(x, xmat, targets, objscale, diff_weights):
@@ -197,11 +226,124 @@ def hfun(x, xmat, targets, objscale, diff_weights):
 
 # %% automatic differentiation
 # define gradient of objective function
-gfn = grad(f)
-hfn = hessian(f)  # from autgrad so we can test vs analytic
+# gfn = grad(f)
+# hfn = hessian(f)  # from autgrad so we can test vs analytic
 
-egfn = egrad(f)
-ehfn = egrad(egfn) # this is just the diagonal of the hessian!!
+# egfn = egrad(f)
+# ehfn = egrad(egfn) # no this is not the hessian, it returns a vector
+
+# %% work on hessian function
+# it is too big to construct!!!
+
+# hbak = h; sbak = s; xmbak = xmat; dwbak = diff_weights; targbak = targets; whbak = wh  # save
+# h = hbak; s = sbak; xmat = xmbak; diff_weights = dwbak; targets = targback; wh = whbak  # restore
+p = mtp.Problem(h=7, s=3, k=2)
+h = p.h; s = p.s; xmat = p.xmat; targets = p.targets; wh = p.wh
+# diff_weights = get_diff_weights(targets)
+diff_weights = np.ones(targets.shape)
+x0 = np.ones((h, s)) / s
+x0 = np.multiply(x0, wh.reshape(x0.shape[0], 1)).flatten()
+hfn = hessian(f)
+hmat = hfn(x0, xmat, targets, 1, diff_weights)
+hms = sp.sparse.coo_matrix(hmat)
+hcheck = sp.sparse.find(hms)
+hcheck[0].size
+hcheck[1].size
+hcheck[2].size
+h * h * s
+hesvals = 2 * np.dot(xmat, xmat.T)  # djb this is the key
+hesvals.shape
+hesvals
+len(np.unique(hesvals))
+
+# hmat is (h *s, h * s)
+# inz: should have h * s rows (1 row per person-state combination)
+# and s columns -
+# get i and j indexes of nonzero values, and data
+# inz = np.arange(0, h).repeat(s * h) + 1
+# for x in range(0, s)
+# get the i indexes for the hessian matrix - there must be a better way
+#   first, get repeating values we want
+h = int(10e3); s = 50
+srepeats = np.tile(np.tile(np.arange(0, s), h), h)
+hs_add_factor = (np.arange(0, h) * s).repeat(s * h)
+inz = srepeats + hs_add_factor
+inz
+
+np.nonzero(hmat)
+np.count_nonzero(hmat)
+
+(ivals % s) *
+ivals % np.arange(0, h)
+
+[n%3 for n in range(0,21)]
+list(range(0, s)) * h
+a = np.tile(np.tile(np.arange(0, s), h), h)
+a * np.tile(np.arange(0, h), s)
+[a + add for add in range(0, h * s, s)]
+np.tile(a + 18, h)
+ia = list(range(0, s)) * h
+ia = np.tile(np.arange(0, s), h)
+ia + 3
+for()
+np.array(ia) + 3
+list(np.arange(0, s).repeat(h))
+list(np.arange(0, h).repeat(s))
+list(np.arange(0, h).repeat([s, 2]))
+
+list(np.arange(0, s))
+list(inz)
+np.resize(np.arange(s), h)
+np.hstack((arr, ) * 3)
+np.hstack((arr, ) * 3)
+(list(range(0, s)) * h)
+jnz = np.arange(0, s * h)
+a = np.array([0, 1, 2])
+np.tile(np.arange(0, s), h)
+np.tile(a, 2)
+np.tile(a, (2, 2))
+
+
+np.tile(a, (2, 1, 2))
+
+
+
+hmat2_sparse = sp.sparse.coo_matrix((np.ones(h*s), (inz, jnz)), shape=(h, h * s))
+# hmat2_sparse.todense()
+
+# these vals fit into hessian as follows, one hesvec row at a time
+# which diag, which cols -- note the repeats
+#  0, 0:2x  1, 0:2x  2, 0:2x  3, 0:2x  4, 0:2x  5, 0:2
+# -1, 3:5x  0, 3:5x  1, 3:5x  2, 3:5x  3, 3:5x  4, 3:5  # 1st item again
+# -2, 6:8x  -1, 6:8x  0, 6:8x  1, 6:8x  2, 6:8x 3, 6:8
+# -3, 9:11
+# -4, 12:14
+# -5, 15:17
+
+# so now we know how to fill the full hessian, later worry
+# about just a triangle, then worry about unique values
+# each row of hesvec fills as follows:
+# row 0: fills cols 0:2, starting rows 0:2, 3:5, 6:8, etc
+# row 1:  cols 3:5, same sets of rows
+# row5: cols 15:17, same sets of rows
+# that will get us the full hessian
+
+
+# slow approach
+hmat_sparse = lil_matrix((h *s, h * s))
+hmat_sparse.shape
+
+# look for a faster way to do this next for loop
+for valrow in range(0, hesvals.shape[0]):
+    if(valrow % 100 == 0):
+        print(valrow)
+    cols = range(valrow * s, valrow * s + s)
+    for valcol in range(0, hesvals.shape[1]):
+        rows = range(valcol * s, valcol * s + s)
+        hmat_sparse[rows, cols] = hesvals[valrow, valcol]
+
+def hessfn(x, xmat, targets, objscale, diff_weights):
+    return hmat_sparse
 
 
 # %% practice and test on toy problems
@@ -210,6 +352,7 @@ ehfn = egrad(egfn) # this is just the diagonal of the hessian!!
 # https://github.com/scipy/scipy/issues/8644
 
 p = mtp.Problem(h=6, s=3, k=2)
+p = mtp.Problem(h=500, s=8, k=4)
 # p = mtp.Problem(h=1000, s=20, k=10)
 # p = mtp.Problem(h=4000, s=20, k=10)
 # p = mtp.Problem(h=10000, s=50, k=10)
@@ -233,16 +376,7 @@ p = mtp.Problem(h=6, s=3, k=2)
 # def hessp(x, p):
 #     return H1(x).dot(p) + H2(x).dot(p)
 
-# minimize(f, x0, jac=jac, hessp=hessp, method='trust-ncg'...)
-# also see this: https://justindomke.wordpress.com/2009/01/17/hessian-vector-products/
-# approximation:  H(x)v ~ [g(x+rv) - g(x - rv)] / 2r
-def hesspfn(x, p, xmat, targets, objscale, diff_weights):
-    # approximation for product of Hessian H and an arbitrary vector p
-    r = .01
-    g1 = gfun(x + r*p, xmat, targets, objscale, diff_weights)
-    g2 = gfun(x - r*p, xmat, targets, objscale, diff_weights)
-    Hp = (g1 + g2) / (2 * r)
-    return Hp
+
 
 xmat = p.xmat
 wh = p.wh
@@ -284,10 +418,8 @@ f(x0, xmat, targets, objscale, diff_weights)
 
 diff_weights = np.ones(targets.shape)
 
-def hessfn(x, xmat, targets, objscale, diff_weights):
-    return hmat_sparse
+# hmat_sparse = sp.sparse.csr_matrix(hmat)
 
-hmat_sparse = sp.sparse.csr_matrix(hmat)
 
 hesvals = 2 * np.dot(xmat, xmat.T)  # djb this is the key
 hesvals.shape
@@ -302,22 +434,81 @@ for valrow in range(0, hesvals.shape[0]):
         rows = range(valcol * s, valcol * s + s)
         hmat_sparse[rows, cols] = hesvals[valrow, valcol]
 
+def hessfn(x, xmat, targets, objscale, diff_weights):
+    return hmat_sparse
+
 # coo_matrix((data, (i, j)), [shape=(M, N)])
 # to construct from three arrays:
 # data[:] the entries of the matrix, in any order
 # i[:] the row indices of the matrix entries
 # j[:] the column indices of the matrix entries
 
-hesvals = 2 * np.dot(xmat, xmat.T)  # djb this is the key
-hmat = np.zeros((h * s, h * s))
-# slow fill
-for valrow in range(0, hesvals.shape[0]):
-    cols = range(valrow * s, valrow * s + s)
-    for valcol in range(0, hesvals.shape[1]):
-        rows = range(valcol * s, valcol * s + s)
-        hmat[rows, cols] = hesvals[valrow, valcol]
+# hesvals = 2 * np.dot(xmat, xmat.T)  # djb this is the key
+# hmat = np.zeros((h * s, h * s))
+# # slow fill
+# for valrow in range(0, hesvals.shape[0]):
+#     cols = range(valrow * s, valrow * s + s)
+#     for valcol in range(0, hesvals.shape[1]):
+#         rows = range(valcol * s, valcol * s + s)
+#         hmat[rows, cols] = hesvals[valrow, valcol]
 
 hessfn(x0, xmat, targets, objscale, diff_weights)
+ediag_vals = ehfn(x0, xmat, targets, objscale, diff_weights)
+
+from autograd import hessian_vector_product as hvp
+
+from autograd import grad, jacobian
+def hessian(fun, argnum=0):
+    return jacobian(jacobian(fun, argnum), argnum)
+
+def make_vjp(fun, argnum=0):
+    def vjp_maker(*args, **kwargs):
+        start_node, end_node = forward_pass(fun, args, kwargs, argnum)
+        if not isnode(end_node) or start_node not in end_node.progenitors:
+            warnings.warn("Output seems independent of input.")
+            def vjp(g): return start_node.vspace.zeros()
+            else:
+                def vjp(g): return backward_pass(g, end_node, start_node)
+                return vjp, end_node
+            return vjp_maker
+
+def make_hvp(fun, argnum=0):
+    """Builds a function for evaluating the Hessian-vector product at a point,
+    which may be useful when evaluating many Hessian-vector products at the same
+    point while caching the results of the forward pass."""
+    def hvp_maker(*args, **kwargs):
+        return make_vjp(grad(fun, argnum), argnum)(*args, **kwargs)[0]
+    return hvp_maker
+
+fnx = make_hvp(f)
+
+def hvp(fun):
+    def grad_dot_vector(arg, vector):
+        return np.dot(grad(fun)(arg), vector)
+    return grad(grad_dot_vector)
+
+def hvp2(fun, xmat, targets, objscale, diff_weights):
+    def grad_dot_vector(arg, vector, xmat, targets, objscale, diff_weights):
+        return np.dot(grad(fun)(arg), vector)
+    return grad(grad_dot_vector)
+
+y = np.random.normal(size=x0.shape)
+gdot = lambda u, p1, xmat, targets, objscale, diff_weights: np.dot(gfun(u, xmat, targets, objscale, diff_weights), y)
+hess1 = grad(gdot)(x0, p1, xmat, targets, objscale, diff_weights)
+
+
+from autograd import hessian_vector_product as hvp
+
+hvpfn = hvp2(f)
+
+hvpfn = hvp(f)
+import autograd as ad
+fnx = ad.hessian_vector_product(f)
+p1 = np.ones(x0.size)
+hesspfn(x0, p1, xmat, targets, objscale, diff_weights)
+hvpfn(x0, p1, xmat, targets, objscale, diff_weights)
+fnx(x0, p1, xmat, targets, objscale, diff_weights)
+
 
 res = minimize(f, x0,
                method='trust-constr',
@@ -325,7 +516,10 @@ res = minimize(f, x0,
                constraints=lincon,  # lincon lincon_feas
                jac=gfun,
                # hess=hessfn, # hessfn '2-point',  # 2-point 3-point
-               hessp=hesspfn,
+               # hess='2-point',
+               # hess=ediag_fn,
+               # hessp=hesspfn,
+               hessp=hvpfn,
                args=(xmat, targets, 1, diff_weights),
                options={'maxiter': 100, 'verbose': 2,
                         'gtol': 1e-4, 'xtol': 1e-4,
@@ -765,7 +959,7 @@ round(ht2stub_adj.div(ht2stub_adj.nret_all, axis=0), 1)
 # https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.fmin_slsqp.html#scipy.optimize.fmin_slsqp
 # https://www.programcreek.com/python/example/114542/scipy.optimize.fmin_slsqp
 
-show_options(solver="minimize", method="trust-ncg")
+# show_options(solver="minimize", method="trust-ncg")
 
 # constraints
 # scipy.optimize.LinearConstraint(A, lb, ub, keep_feasible=False)[source]
@@ -796,17 +990,18 @@ pufsums.query('HT2_STUB==@stub')[targvars] / targets.sum(axis=0)
 diff_weights = get_diff_weights(targets)
 # diff_weights = np.ones(targets.shape)
 
-A = lil_matrix((h, h * s))
-# look for a faster way to do this next for loop
-for i in range(0, h):
-    A[i, range(i*s, i*s + s)] = 1
-A
-# b=A.todense()  # ok to look at dense version if small
+# fast way to fill A
+# get i and j indexes of nonzero values, and data
+inz = np.arange(0, h).repeat(s)
+jnz = np.arange(0, s * h)
+A = sp.sparse.coo_matrix((np.ones(h*s), (inz, jnz)), shape=(h, h * s))
+# A2.todense() - A.todense()
+
 A = A.tocsr()  # csr format is faster for our calculations
+# A = A.tocsc()
 lincon = sp.optimize.LinearConstraint(A, wh, wh)
-# keep_feasible doesn't seem to matter
-# lincon_feas = sp.optimize.LinearConstraint(A, wh, wh, keep_feasible=True)
-# lincon = sp.optimize.LinearConstraint(A, wh*.98, wh*1.02)  # range around weight sums
+linconineq = sp.optimize.LinearConstraint(A, wh * .99, wh * 1.01)
+linconineq_feas = sp.optimize.LinearConstraint(A, wh * .99, wh * 1.01, keep_feasible=True)
 
 # objscale = 1e-6
 wsmean = np.mean(wh) / targets.shape[0]
@@ -819,59 +1014,75 @@ objscale = 1
 objscale
 
 # objective function at possible starting values
-f(xcheck, xmat, targets, objscale, diff_weights)
-f(iwhs, xmat, targets, objscale, diff_weights)
+# f(xcheck, xmat, targets, objscale, diff_weights)
+# f(iwhs, xmat, targets, objscale, diff_weights)
 
 # bnds = sp.optimize.Bounds(0, np.inf)
-bnds = sp.optimize.Bounds(wsmin / 10, wsmax)
+bnds = sp.optimize.Bounds(0, wsmax)  # wsmin / 10
+
+# p1 = np.ones(x0.size)
+# hvp = hesspfn(x0, p1, xmat, targets, objscale, diff_weights)
+# hvp
+# hesspfn(res.x, p, xmat, targets, objscale, diff_weights)
+
+# xmat.shape
+# targets.shape
+# diff_weights.shape
+# bnds
 
 # x0 = np.full(h * s, 1)
 # x0 = g.whs_opt.flatten()
 x0 = iwhs
-
-xmat.shape
-targets.shape
-diff_weights.shape
-bnds
-x0.shape
-
 # verify that starting values satisfy adding-up constraint
 np.square(np.round(x0.reshape((h, s)).sum(axis=1) - wh, 2)).sum()
 # end verification
 
-res = minimize(f, res.x,
+# try alternative starting points
+# x0 = np.ones(iwhs.size)
+# x0 = np.zeros(iwhs.size)
+# x0 = np.full(iwhs.size, iwhs.mean())
+# x0 = np.full(iwhs.size, wsmax)
+
+# equal shares - fast but little improvement, maybe try a lot of iterations
+# x0 = np.ones((h, s)) / s
+# x0 = np.multiply(x0, wh.reshape(x0.shape[0], 1)).flatten()
+
+res2 = minimize(f, x0,
                method='trust-constr',
                bounds=bnds,
-               constraints=lincon,  # lincon lincon_feas
+               constraints=linconineq,  # lincon linconineq linconineq_feas
                jac=gfun, # egfn, # gfun, # egfn
-               # hess=ehfn,
-               # hess=SR1(),
-               # hess=ediag_fn,
-               # hess=sp.optimize.SR1(),
                # hess='2-point',  # 2-point 3-point cs
-               hessp = hesspfn,
+               hessp = f_hvp_wrap,
                args=(xmat, targets, 1, diff_weights),
-               options={'maxiter': 750, 'verbose': 2,
+               options={'maxiter': 50, 'verbose': 2,
                         'gtol': 1e-4, 'xtol': 1e-4,
                         'initial_tr_radius': 1,  # default 1
                         'factorization_method': 'AugmentedSystem'})  # default AugmentedSystem NormalEquation
 
-# |  500  |  518  |  500  | +1.0119e+03 | 6.28e+00 | 9.66e-02 | 6.82e-13 |
+# |  15   |  15   | 1244  | +2.6477e+02 | 9.17e+03 | 1.44e+00 | 1.51e+02 |
 
-# The maximum number of function evaluations is exceeded.
-# Number of iterations: 500, function evaluations: 518, CG iterations: 500, optimality: 9.66e-02, constraint violation: 6.82e-13, execution time: 2.9e+03 s.
+# |  15   |  15   |  39   | +1.8358e+04 | 8.09e-02 | 5.62e+00 | 9.23e-01 |
+# |  20   |  20   |  44   | +1.8318e+04 | 2.78e-01 | 5.64e+00 | 9.23e-01 |
 
-# |  74   |  70   | 39372 | +3.9494e-03 | 4.32e+07 | 9.96e-05 | 4.55e-13 |
+# |   8   |   8   |  416  | +3.6477e+01 | 2.76e+04 | 5.75e-02 | 3.17e+02 | state shares
+# |  10   |  10   | 1116  | +4.1942e+01 | 2.76e+04 | 4.52e-02 | 3.14e+02 | state shares
+# |  14   |  14   | 3055  | +4.0002e+01 | 2.76e+04 | 3.86e-02 | 2.10e+02 | state shares
+# |   8   |   8   |  381  | +1.7041e+05 | 9.45e+04 | 6.73e+00 | 3.36e+03 | ones
+# |  10   |  10   |  805  | +6.6573e+04 | 6.10e+05 | 2.64e+00 | 2.02e+04 | zeros
+# |  100  |  100  |  99   | +2.3909e+05 | 1.56e+03 | 7.32e-01 | 9.09e-13 | equal shares, 250 secs
+# |  100  |  100  |  99   | +2.3909e+05 | 1.56e+03 | 7.32e-01 | 9.09e-13 | equal shares 2-point, 250 secs
+# |  10   |  10   |  471  | +2.1704e+05 | 1.01e+05 | 5.12e+00 | 5.16e+03 | iwhsmean
+# |  10   |  10   |  439  | +1.5917e+10 | 2.66e+07 | 3.94e+02 | 1.05e+06 | wsmax
 
-# `gtol` termination condition is satisfied.
-# Number of iterations: 74, function evaluations: 70, CG iterations: 39372, optimality: 9.96e-05, constraint violation: 4.55e-13, execution time: 2.3e+04 s.
 
+res = res2
 wpdiff =(A.dot(res.x) - wh) / wh * 100  # sum of state weights minus national weights
 tpdiff = (targs(res.x, xmat, targets) - targets) / targets * 100  # pct diff
-np.round(np.quantile(wpdiff, (0, .25, .5, .75, 1)), 2)
-np.round(np.quantile(tpdiff, (0, .25, .5, .75, 1)), 2)
+np.round(np.quantile(wpdiff, (0, .1, .25, .5, .75, .9, 1)), 2)
+np.round(np.quantile(tpdiff, (0, .1, .25, .5, .75, .9, 1)), 2)
 np.round(tpdiff, 2)
-np.quantile(res.x, (0, .25, .5, .75, 1))
+np.round(np.quantile(res.x, (0, .1, .25, .5, .75, .9, 1)), 2)
 
 res.execution_time / 60
 res.fun
@@ -905,6 +1116,217 @@ res.x.max()
 #  7 : Rank-deficient equality constraint subproblem HFTI
 #  8 : Positive directional derivative for linesearch
 #  9 : Iteration limit reached
+
+
+# %% ipopt
+import src.reweight as rw
+
+class cbacks(object):
+    """
+    Must have:
+        objective
+        constraints
+        gradient
+        jacobian
+        jacobianstructure
+        hessian
+        hessianstructure
+        intermediate
+    """
+    def __init__(self, cc, quiet):
+        self._cc = cc
+        self._n = cc.shape[0]
+        self._m = cc.shape[1]
+        self._quiet = quiet
+
+    def objective(self, x):
+        """Calculate objective function."""
+        return np.sum((x - 1)**2)
+
+    def constraints(self, x):
+        return np.dot(x, self._cc)
+
+    def gradient(self, x):
+        """Calculate gradient of objective function."""
+        return 2 * x - 2
+
+
+    def jacobian(self, x):
+        row, col = self.jacobianstructure()
+        return self._cc.T[row, col]
+
+    def jacobianstructure(self):
+        return np.nonzero(self._cc.T)
+
+    def hessian(self, x, lagrange, obj_factor):
+        H = np.full(self._n, 2) * obj_factor
+        return H
+
+    def hessianstructure(self):
+        """
+        Row and column indexes of nonzero elements of hessian.
+
+        A tuple of two arrays: one for row indexes and one for column indexes.
+        In this problem the hessian has nonzero elements only on the diagonal
+        so this returns an array of row indexes of arange(0, n) where n is
+        the number of rows (and columns) in the square hessian matrix, and
+        the same array for the column index column indexes.
+
+        These indexes must correspond to the order of the elements returned
+        from the hessian function. That requirement is enforced in that
+        function.
+
+        Note: The cyipopt default hessian structure is a lower triangular
+        matrix, so if that is what the hessian function produces, this
+        function is not needed.
+
+        Returns
+        -------
+        hstruct : tuple:
+            First array has row indexes of nonzero elements of the hessian
+            matrix.
+            Second array has column indexes for these elements.
+
+        """
+        hidx = np.arange(0, self._n, dtype='int64')
+        hstruct = (hidx, hidx)
+        return hstruct
+
+    def intermediate(
+            self,
+            alg_mod,
+            iter_count,
+            obj_value,
+            inf_pr,
+            inf_du,
+            mu,
+            d_norm,
+            regularization_size,
+            alpha_du,
+            alpha_pr,
+            ls_trials
+            ):
+        """
+        Print intermediate results after each iteration.
+
+        Parameters
+        ----------
+        alg_mod : TYPE
+            DESCRIPTION.
+        iter_count : TYPE
+            DESCRIPTION.
+        obj_value : TYPE
+            DESCRIPTION.
+        inf_pr : TYPE
+            DESCRIPTION.
+        inf_du : TYPE
+            DESCRIPTION.
+        mu : TYPE
+            DESCRIPTION.
+        d_norm : TYPE
+            DESCRIPTION.
+        regularization_size : TYPE
+            DESCRIPTION.
+        alpha_du : TYPE
+            DESCRIPTION.
+        alpha_pr : TYPE
+            DESCRIPTION.
+        ls_trials : TYPE
+            DESCRIPTION.
+
+        Returns
+        -------
+        None.
+
+        """
+        # print("Objective value at iteration #%d is - %g"
+        #     % (iter_count, obj_value))
+        if(not self._quiet):
+            print("Iter, obj, infeas #%d %g %g"
+                  % (iter_count, obj_value, inf_pr))
+
+def get_ccscale(cc, ccgoal, method='mean'):
+# use mean or median as the denominator
+    if(method == 'mean'):
+        denom = cc.sum(axis=0) / cc.shape[0]
+        elif(method == 'median'):
+            denom = np.median(cc, axis=0)
+        ccscale = np.absolute(ccgoal / denom)
+        # ccscale = ccscale / ccscale
+        return ccscale
+
+cc = (xmat.T * wh).T
+
+# scale constraint coefficients and targets
+ccgoal = 1
+ccscale = get_ccscale(cc, ccgoal=ccgoal, method='mean')
+# print(ccscale)
+# ccscale = 1
+cc = cc * ccscale  # mult by scale to have avg derivative meet our goal
+targets = targets * ccscale
+
+# IMPORTANT: define callbacks AFTER we have scaled cc and targets
+# because callbacks must be initialized with scaled cc
+callbacks = rw.Reweight_callbacks(cc, quiet)
+
+# x vector starting values, and lower and upper bounds
+x0 = np.ones(self._n)
+lb = np.full(self._n, xlb)
+ub = np.full(self._n, xub)
+
+# constraint lower and upper bounds
+cl = targets - abs(targets) * crange
+cu = targets + abs(targets) * crange
+
+nlp = ipopt.problem(
+            n=n,
+            m=m,
+            problem_obj=callbacks,
+            lb=lb,
+            ub=ub,
+            cl=cl,
+            cu=cu)
+
+# objective function scaling
+# objscale = self.get_objscale(objgoal=objgoal, xbase=1.2)
+# print(objscale)
+nlp.addOption('obj_scaling_factor', 1)  # multiplier
+
+# define additional options as a dict
+opts = {'print_level': 5,
+        'file_print_level': 5,
+        # 'jac_d_constant': 'yes',
+        'hessian_constant': 'yes',
+        'max_iter': 10,
+        'mumps_mem_percent': 100,  # default 1000
+        'linear_solver': 'mumps',
+        }
+x, info = nlp.solve(x0)
+
+# # TODO: check against already set options, etc. see ipopt_wrapper.py
+for option, value in opts.items():
+    nlp.addOption(option, value)
+
+
+
+# nlp.addOption('nlp_scaling_method', 'equilibration-based')
+        # outfile = 'test4.out'
+        # if os.path.exists(outfile):
+        #     os.remove(outfile)
+        # nlp.addOption('output_file', outfile)
+        # nlp.addOption('derivative_test', 'first-order')  # second-order
+
+        # nlp_scaling_method: default gradient-based
+        # equilibration-based needs MC19
+        # nlp.addOption('nlp_scaling_method', 'equilibration-based')
+        # nlp.addOption('nlp_scaling_max_gradient', 1e-4)  # 100 default
+        # nlp.addOption('mu_strategy', 'adaptive')  # not good
+        # nlp.addOption('mehrotra_algorithm', 'yes')  # not good
+        # nlp.addOption('mumps_mem_percent', 100)  # default 1000
+        # nlp.addOption('mumps_pivtol', 1e-4)  # default 1e-6; 1e-2 is SLOW
+        # nlp.addOption('mumps_scaling', 8)  # 77 default
+
+
 
 
 # %% play -- hessian
@@ -1169,3 +1591,17 @@ def gfun_old(x, xmat, targets, objscale, diff_weights):
     # diffs = diffs * diff_weights
     grad = 2 * xmat.dot(diffs.T)
     return grad.flatten()
+
+
+# %% OLD constraint notes
+# A = lil_matrix((h, h * s))
+# look for a faster way to do this next for loop
+# for i in range(0, h):
+#     A[i, range(i*s, i*s + s)] = 1
+# A
+# b=A.todense()  # ok to look at dense version if small
+# A = A.tocsr()  # csr format is faster for our calculations
+# lincon = sp.optimize.LinearConstraint(A, wh, wh)
+# keep_feasible doesn't seem to matter
+# lincon_feas = sp.optimize.LinearConstraint(A, wh, wh, keep_feasible=True)
+# lincon = sp.optimize.LinearConstraint(A, wh*.98, wh*1.02)  # range around weight sums

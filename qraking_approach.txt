@@ -1,0 +1,68 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Oct  1 12:35:51 2020
+Obtained by email on 10/1/2020 from Toky Randrianasolo in relation to:
+
+Randrianasolo, Toky, and Yves Tillé. “Small Area Estimation by Splitting the Sampling Weights.” Electronic Journal of Statistics 7, no. 0 (2013): 1835–55. https://doi.org/10.1214/13-EJS827.
+
+
+https://arxiv.org/pdf/1906.11920v1.pdf
+
+
+Also see this:
+https://deepai.org/publication/a-python-library-for-empirical-calibration
+https://arxiv.org/pdf/1906.11920v1.pdf
+https://github.com/google/empirical_calibration
+
+pip install -q git+https://github.com/google/empirical_calibration
+
+Module can installed from github https://github.com/google/empirical_calibration and
+imported as import empirical_calibration as ec
+The primary interface is function ec.calibrate :
+
+@author: donbo
+"""
+
+# qraking approach in R
+
+
+## Matrix Q calibration
+
+# Arguments
+
+# Q : initialisation of the matrix Q
+# w : calibration weights
+# Xs : auxilary variables used to obtain the w
+
+# In the function :
+	# a matrix TTT is included where TTT[,i] is the total of the auxilary variables (the same as in Xs) at the level of the domain i : it refers to t^d_x in the article
+	# ver is the sufficient small positive real (defined as epsilon in the article)
+
+library(sampling)
+
+MatrixCalib <- function(Q,w,Xs){
+	ver=1
+	k=1
+	while(ver>10^(-5) & k <=500)
+	{
+		cat(" n.iter = ", k,"\n")
+		for(i in 1:m)
+		{
+			cat("Domain ",nom[i],": calibration ")
+			g = calib((Xs*w),Q[,i],TTT[i,],method="raking")
+			if (is.null(g) | any(is.na(g)) | any(g == 0) | any(is.infinite(g)) ) {g = rep(1,length(Q[,i]));cat("non done","\n")}
+			else {cat("done","\n")}
+			Q[,i]=Q[,i]*g
+		}
+	ver = sum(abs(rowSums(Q)-1))
+	if (any(is.infinite(abs(rowSums(Q)-1)))) {ver = 10^(-5);cat("Existence of infinite coefficient(s) : non convergence\n")}
+	cat("Stop condition :\n ")
+	print(ver)
+	Q=Q/rowSums(Q)
+	k=k+1
+	if (k > 500) cat("Maximal number of iterations not achieved : non convergence \n")
+	}
+	Q
+}
+
+######################################################
