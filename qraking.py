@@ -15,6 +15,8 @@ import numpy as np
 import src.microweight as mw
 import src.make_test_problems as mtp
 
+from timeit import default_timer as timer
+
 # pip install -q git+https://github.com/google/empirical_calibration
 import empirical_calibration as ec
 
@@ -115,6 +117,7 @@ p = mtp.Problem(h=100, s=8, k=4)
 p = mtp.Problem(h=1000, s=20, k=8)
 p = mtp.Problem(h=10000, s=40, k=15)
 p = mtp.Problem(h=40000, s=50, k=30)
+p = mtp.Problem(h=200000, s=50, k=30)
 
 p.wh
 p.xmat
@@ -158,13 +161,17 @@ covs.shape
 # tcovs.shape  # 1, 2
 # bw.shape
 
+a = timer()
 weights4, l2_norm = ec.maybe_exact_calibrate(
     covariates=covs2, # 1 row per person
     target_covariates=tmeans.reshape((1, tmeans.size)),   # tmeans
     # baseline_weights=bw,
     # target_weights=np.array([[.25, .75]]), # make one target more important than another?
+    autoscale=True,
     objective=ec.Objective.ENTROPY
 )
+b = timer()
+b - a
 l2_norm
 # tmeans
 
@@ -172,52 +179,75 @@ l2_norm
 
 # data times weights
 check = np.multiply(covs2, weights4.reshape(weights4.size, 1))
-check.sum(axis=0) # ok, this hits the means
+calcmeans = check.sum(axis=0) # ok, this hits the means
+calcmeans
 tmeans
-tsums
+np.square(calcmeans - tmeans).sum()
+
+
+# %% try it out on a column of an agi stub
+
+# assume we already have targets, wh, and xmat
 
 
 
-shares = p.targets[1, ] / p.targets[1, ].sum()
+natsums = targets.sum(axis=0)  # national sum for each variable
+shares = np.multiply(targets, 1 / natsums)
+shares.sum(axis=0)
+shares[1, 0]
 
-tcov = p.targets[0, ].reshape((1, 2))
-# target_covariates
-tcov = np.multiply(p.xmat, p.wh.reshape(p.wh.size, 1))
-iweights = shares[0] * p.wh
+npop = wh.sum()
+nsamp = npop / shares[1, 0]
 
-wvals = np.multiply(p.xmat, iweights.reshape((20, 1)))
-wsums = wvals.sum(axis=0)
-wmeans = wvals.mean(axis=0)
-tmeans = p.targets[0, ] / 10 *.7
+# use the state 1 (2nd row) as targets
+st = 1
+tsums = targets[st, ]  # .shape # (2, )
+# nsamp = tsums[0]  # treat the first variable as if it is a count
+tmeans = tsums / nsamp
+tmeans
 
-natcovs = np.multiply(p.xmat, p.wh.reshape(p.wh.size, 1))
-bw = np.full(p.xmat.shape[0], shares[0])
+# tcovs = tmeans.reshape((1, tmeans.size))
 
+# covs = np.multiply(p.xmat, p.wh.reshape(p.wh.size, 1))
+# covs2 = covs * shares[st, 0]
 
-# .reshape((20, 1))
-dspop[cols].sum() / np.size(dspop, 0) # this is what we should use as target
-targmeans = p.targets[0, ] / p.targets[0, 0]
-np.multiply(p.xmat, weights.reshape(weights.size, 1))
+# bw = p.wh.reshape((p.wh.size, 1)) / 3
 
+# p.xmat.shape  # 20, 2
+# covs = p.xmat
+covs = np.multiply(xmat, wh.reshape(wh.size, 1))
+covs.sum(axis=0)
+covs.mean(axis=0)
+covs2 = covs * tmeans[0] / covs.mean(axis=0)[0]
+covs2.mean(axis=0)
+tmeans
+
+# covs2 = covs * shares[1, 0] # np.multiply(covs, )
+# covs2.shape
+# tcovs.shape  # 1, 2
+# bw.shape
+
+a = timer()
 weights, l2_norm = ec.maybe_exact_calibrate(
-    covariates=natcovs,
-    baseline_weights= bw,  #: np.ndarray = None,
-    target_covariates=tmeans.reshape((1, 2)),
+    covariates=covs2, # 1 row per person
+    target_covariates=tmeans.reshape((1, tmeans.size)),   # tmeans
+    # baseline_weights=bw,
+    # target_weights=np.array([[.25, .75]]), # make one target more important than another?
+    autoscale=True,
     objective=ec.Objective.ENTROPY
 )
-check = np.multiply(p.xmat, weights.reshape(weights.size, 1))
-np.multiply(natcovs, weights.reshape(weights.size, 1))
-check
-check.sum(axis=0)
-check.mean(axis=0)
-wsums
-# target_covariates.shape[1] != covariates.shape[1]
+b = timer()
+b - a
+l2_norm
+# tmeans
 
-weights, l2_norm = ec.maybe_exact_calibrate(
-    covariates=dssamp[cols], # 100 rows
-    target_covariates=dspop[cols],  # 1000 rows
-    objective=ec.Objective.ENTROPY
-)
+# covs2.sum(axis=0)
 
-type(dspop[cols])
+# data times weights
+check = np.multiply(covs2, weights.reshape(weights.size, 1))
+calcmeans = check.sum(axis=0) # ok, this hits the means
+calcmeans
+tmeans
+np.square(calcmeans - tmeans).sum()
+
 
