@@ -9,6 +9,7 @@ https://github.com/google/empirical_calibration/blob/master/notebooks/survey_cal
 # %% imports
 import os
 import sys
+import warnings
 import requests
 import pandas as pd
 import numpy as np
@@ -194,7 +195,7 @@ np.square(calcmeans - tmeans).sum()
 # %% good agistub
 # assume we already have targets, wh, and xmat
 
-st = 6
+st = 18
 
 natsums = targets.sum(axis=0)  # national sum for each variable
 
@@ -204,17 +205,32 @@ npop = wh.sum()
 nsamp = targets[st, 0]  # treat first variable as a count for which we want shares
 
 # tmeans, used for target covariates, must be 2d array, so make tsums 2d array
+# tsums are the actual total targets, tmeans are the mean per return
 tsums = targets[st, ].reshape((1, tsums.size))  # must be 2d array (1, ntargs)
 tmeans = tsums / nsamp  # .reshape((1, tsums.size))  # must be 2d array (1, ntargs)
 
 covs = xmat * (wh / wh_avg)
 initmeans = covs.mean(axis=0)  # initial weighted means
+initsums = initmeans * nsamp
+
+# uniform baseline weights
+bw = wh * nsamp / npop
+bw = bw / bw.sum()
+bw
+
+# bw = np.ones(wh.size) * 1 / xmat.shape[0] # this works
+wgood = weights.reshape(weights.size, 1)
+bw
+wh.shape
+
+tmp = xmat* wh / wh_avg * wgood
+tmp.sum(axis=0)
 
 a = timer()
 weights, l2_norm = ec.maybe_exact_calibrate(
-    covariates=covs, # 1 row per person
+    covariates=xmat* wh / wh_avg, # covs, # 1 row per person
     target_covariates=tmeans,  # tcovs,
-    # baseline_weights=bw,
+    baseline_weights=wgood,
     # target_weights=np.array([[1, 2, 3, 4, 3, 2, 1]]), # priority weights
     autoscale=True,
     objective=ec.Objective.ENTROPY
@@ -223,10 +239,15 @@ b = timer()
 b - a
 l2_norm
 np.quantile(weights, [0, .1, .25, .5, .75, .9, 1])
+weights.sum()
+weights[1:10]
+# array([7.42767781e-06, 1.78542362e-05, 2.13985906e-05, 2.52127750e-05,
+#        2.80850144e-05, 3.00345197e-05, 1.17109605e-04])
 
 # data times weights
-check = np.multiply(covs2, weights.reshape(weights.size, 1))
+check = np.multiply(covs, weights.reshape(weights.size, 1))
 calcmeans = check.sum(axis=0)  # ok, this hits the means
+calcsums = calcmeans * nsamp
 
 # compare means
 tmeans  # targets
@@ -235,7 +256,131 @@ calcmeans  # after weighting
 np.square(initmeans - tmeans).sum()
 np.square(calcmeans - tmeans).sum()
 
+# compare sums
 tsums
-initmeans * nsamp
-calcmeans * nsamp
+initsums
+calcsums
+np.square(initsums - tsums).sum()
+np.square(calcsums - tsums).sum()
+
+# pct differences in sums
+np.square((initsums - tsums) / tsums * 100).sum()
+np.square((calcsums - tsums) / tsums * 100).sum()
+
+
+# %% R calib raking function
+
+# get a problem from agi sutb
+Xs = xmat
+targets
+# use state 0
+total = targets[0, ].reshape(targets[0,].size, 1)  # targets for a single state
+d = start_values.query('STATE =="AK"')['iwhs'].to_numpy()
+d.shape
+d = d.reshape((d.size, 1))
+
+# create a problem
+p = mtp.Problem(h=100, s=5, k=4)
+Xs = p.xmat
+total = p.targets[0, ].reshape(p.targets.shape[1], 1) # 1-column matrix (array)
+ratio = p.targets[0, 0] / p.targets[:, 0].sum()
+d = (p.wh * ratio * 1.0).reshape((p.wh.size, 1))
+
+Xs.shape
+p.xmat.shape
+total.shape
+d.shape
+
+# grake
+g = rake(Xs, d, total)
+g * p.wh
+g * d
+
+itot = np.dot(Xs.T, d)
+ctot = np.dot(Xs.T, g * d)
+
+# compare targets
+total
+itot
+ctot
+idiff = itot - total
+cdiff = ctot - total
+ipdiff = idiff / total * 100
+cpdiff = cdiff / total * 100
+np.round(idiff / total * 100, 4)
+np.round(cdiff / total * 100, 4)
+np.square(ipdiff).sum()
+np.square(cpdiff).sum()
+
+# compare weights
+wnew = g * d
+wdiff = wnew - d
+wpdiff = wdiff / d * 100
+np.quantile(wdiff, [0, .25, .5, .75, 1])
+np.quantile(wpdiff, [0, .25, .5, .75, 1])
+np.square(wpdiff).sum()
+
+
+
+def rake(Xs, d, total, q=1):
+    # this is a direct translation of the raking code of the calib function
+    # in the R sampling package, as of 10/3/2020
+    # Xs the matrix of covariates
+    # d vector of initial weights
+    # total vector of targets
+    # q vector or scalar related to heteroskedasticity
+    # returns g, which when multiplied by the initial d gives the new weight
+    EPS1 = 1e-8  # R calib uses 1e-6
+    max_iter = 10
+    lam = np.zeros((Xs.shape[1], 1))
+    w1 = d * np.exp(np.dot(Xs, lam) * q)
+    # operands could not be broadcast together with shapes (20,1) (100,1)
+    for i in range(max_iter):
+        phi = np.dot(Xs.T, w1) - total
+        T1 = (Xs * w1).T
+        phiprim = np.dot(T1, Xs)
+        lam = lam - np.dot(np.linalg.pinv(phiprim, rcond = 1e-15), phi)
+        w1 = d * np.exp(np.dot(Xs, lam) * q)
+        if np.isnan(w1).any() or np.isinf(w1).any():
+            warnings.warn("No convergence")
+            g = None
+            break
+        tr = np.inner(Xs.T, w1.T)
+        if np.max(np.abs(tr - total) / total) < EPS1:
+            break
+        if i==max_iter:
+            warnings.warn("No convergence")
+            g = None
+        else:
+            g = w1 / d
+    print(i)
+    return g
+
+
+
+    # else if (method == "raking") {
+    #     lambda = as.matrix(rep(0, ncol(Xs)))
+    #     w1 = as.vector(d * exp(Xs %*% lambda * q))
+    #     for (l in 1:max_iter) {
+    #         phi = t(Xs) %*% w1 - total
+    #         T1 = t(Xs * w1)
+    #         phiprim = T1 %*% Xs
+    #         lambda = lambda - ginv(phiprim, tol = EPS) %*% phi
+    #         w1 = as.vector(d * exp(Xs %*% lambda * q))
+    #         if (any(is.na(w1)) | any(is.infinite(w1))) {
+    #             warning("No convergence")
+    #             g = NULL
+    #             break
+    #         }
+    #         tr = crossprod(Xs, w1)
+    #         if (max(abs(tr - total)/total) < EPS1)
+    #             break
+    #     }
+    #     if (l == max_iter) {
+    #         warning("No convergence")
+    #         g = NULL
+    #     }
+    #     else g = w1/d
+    # }
+
 
