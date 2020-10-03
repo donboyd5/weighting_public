@@ -461,30 +461,43 @@ np.square(wpdiff).sum()
 
 
 # %% qraking approach using the rake function
+# use an agi stub
+Xs = xmat
+Xs.shape
+w = wh.reshape((-1, 1))
+w.shape
+TTT = targets
+TTT.shape # 21, 7
+
+
+# create a problem
 p = mtp.Problem(h=10, s=3, k=2)
-p = mtp.Problem(h=100, s=7, k=3)
+p = mtp.Problem(h=1000, s=10, k=5)
+p = mtp.Problem(h=10000, s=20, k=10)
+p = mtp.Problem(h=40000, s=50, k=30)
+
 Xs = p.xmat
 w = p.wh.reshape(p.wh.size, 1)
 TTT = p.targets
+
+# start setting up
 m = TTT.shape[0]  # number of states
 n = Xs.shape[0]  # number of households
-
-# TTT = targets1
-
-# total = p.targets[0, ].reshape(p.targets.shape[1], 1) # 1-column matrix (array)
-# ratio = p.targets[0, 0] / p.targets[:, 0].sum()
-# d = (p.wh * ratio * 1.0).reshape((p.wh.size, 1))
 
 # form the Q matrix
 # each state's share of total returns, treating target 0 as # of returns
 shares = TTT[:, 0] / TTT[:, 0].sum()
 shares.sum()
 Q = np.tile(shares, n).reshape((n, m))
-
+np.abs(Q.sum(axis=1) - 1).sum()
 # Q[0, :].sum()
 # Q.sum(axis=1).size
 
+a = timer()
 Qnew = qrake(Q, w, Xs, TTT)
+b = timer()
+b - a
+
 np.abs(Q.sum(axis=1) - 1).sum()
 np.abs(Qnew.sum(axis=1) - 1).sum()
 
@@ -505,6 +518,11 @@ ctargsnew = np.dot(whsnew.T, Xs)
 np.round(ctargsnew - TTT, 2)
 np.square(ctargsnew - TTT).sum()
 
+pdiff = (ctargsnew - TTT) / TTT * 100
+pdiff
+np.round(np.quantile(pdiff, [0, .1, .25, .5, .75, .9, 1]), 4)
+np.square(pdiff).sum()
+
 Q.shape
 w.shape
 Xs.shape
@@ -518,6 +536,7 @@ def qrake(Q, w, Xs, TTT):
     ver = 1  # initialize error in sum of weight shares across states
     k = 1  # initialize iteration count
     m = TTT.shape[0]  # number of states
+    w = w.reshape((-1, 1))  # ensure the proper shape
     # compute before the loop to save a little time (calib calcs in the loop)
     Xsw = Xs * w  # Xsw.shape n x number of targets
     # i = 0
