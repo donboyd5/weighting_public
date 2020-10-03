@@ -24,6 +24,89 @@ import empirical_calibration as ec
 # pip install -q rdata
 import rdata
 
+# %% functions
+# rake(Xsw, Q[:, i], TTT[i, :]) # TTT[i, :]
+
+# Xs <- matrix(2:19, nrow=6)
+#      [,1] [,2] [,3]
+# [1,]    2    8   14
+# [2,]    3    9   15
+# [3,]    4   10   16
+# [4,]    5   11   17
+# [5,]    6   12   18
+# [6,]    7   13   19
+# lam <- matrix(c(1, 2, 3), ncol=1)
+# > Xs %*% lam
+#      [,1]
+# [1,]   60
+# [2,]   66
+# [3,]   72
+# [4,]   78
+# [5,]   84
+# [6,]   90
+# x = np.array(np.arange(2, 20).reshape((3, 6))).T
+# x
+# lam = np.array([[1],
+#                 [2],
+#                 [3]])
+# np.dot(x, lam)
+
+djb1=Xsw; djb2=Q[:, i]; djb3=TTT[i, :]
+Xs=djb1; d=djb2; total=djb3
+rake(djb1, djb2, djb3)
+
+def rake(Xs, d, total, q=1):
+    # this is a direct translation of the raking code of the calib function
+    # in the R sampling package, as of 10/3/2020
+    # Xs the matrix of covariates
+    # d vector of initial weights
+    # total vector of targets
+    # q vector or scalar related to heteroskedasticity
+    # returns g, which when multiplied by the initial d gives the new weight
+    EPS = 1e-15  # machine double precision used in R
+    EPS1 = 1e-8  # R calib uses 1e-6
+    max_iter = 10
+
+    # make sure inputs all have the right shape
+    d = d.reshape((-1, 1))
+    total = total.reshape((-1, 1))
+
+    lam = np.zeros((Xs.shape[1], 1))  # lam is k x 1
+    w1 = d * np.exp(np.dot(Xs, lam) * q) # h(n) x 1
+
+    # DJB NEW check whether we need to set initial value for g
+    g = np.ones(w1.size)
+    # phi = np.dot(Xs.T, w1) - total  # phi is 1 col matrix
+    # T1 = (Xs * w1).T # T1 has k(m) rows and h(n) columns
+    # phiprim = np.dot(T1, Xs) # phiprim is k x k
+    # lam1 = np.dot(np.linalg.pinv(phiprim, rcond = 1e-15), phi) # k x 1
+    # if np.abs(lam1).max() < EPS:
+    #     g = 1 + np.exp(np.dot(Xs, lam) * q)
+    # END DJB NEW
+
+    # operands could not be broadcast together with shapes (20,1) (100,1)
+    for i in range(max_iter):
+        phi = np.dot(Xs.T, w1) - total  # phi is 1 col matrix
+        T1 = (Xs * w1).T # T1 has k(m) rows and h(n) columns
+        phiprim = np.dot(T1, Xs) # phiprim is k x k
+        lam = lam - np.dot(np.linalg.pinv(phiprim, rcond = 1e-15), phi) # k x 1
+        w1 = d * np.exp(np.dot(Xs, lam) * q)  # h(n) x 1; in R this is a vector??
+        if np.isnan(w1).any() or np.isinf(w1).any():
+            warnings.warn("No convergence")
+            g = None
+            break
+        tr = np.inner(Xs.T, w1.T) # k x 1
+        if np.max(np.abs(tr - total) / total) < EPS1:
+            break
+        if i==max_iter:
+            warnings.warn("No convergence")
+            g = None
+        else:
+            g = w1 / d
+    print(i)
+    return g
+
+
 # %% package example
 
 # !wget -q https://github.com/anqif/CVXR/raw/master/data/dspop.rda
@@ -195,7 +278,7 @@ np.square(calcmeans - tmeans).sum()
 # %% good agistub
 # assume we already have targets, wh, and xmat
 
-st = 18
+st = 0
 
 natsums = targets.sum(axis=0)  # national sum for each variable
 
@@ -219,7 +302,7 @@ bw = bw / bw.sum()
 bw
 
 # bw = np.ones(wh.size) * 1 / xmat.shape[0] # this works
-wgood = weights.reshape(weights.size, 1)
+# wgood = weights.reshape(weights.size, 1)
 bw
 wh.shape
 
@@ -230,7 +313,7 @@ a = timer()
 weights, l2_norm = ec.maybe_exact_calibrate(
     covariates=xmat* wh / wh_avg, # covs, # 1 row per person
     target_covariates=tmeans,  # tcovs,
-    baseline_weights=wgood,
+    # baseline_weights=wgood,
     # target_weights=np.array([[1, 2, 3, 4, 3, 2, 1]]), # priority weights
     autoscale=True,
     objective=ec.Objective.ENTROPY
@@ -241,6 +324,17 @@ l2_norm
 np.quantile(weights, [0, .1, .25, .5, .75, .9, 1])
 weights.sum()
 weights[1:10]
+
+iweights =(wh / wh_avg) / nsamp
+weights, l2_norm = ec.maybe_exact_calibrate(
+    covariates=xmat, # covs, # 1 row per person
+    target_covariates=tmeans,  # tcovs,
+    baseline_weights=iweights,
+    # target_weights=np.array([[1, 2, 3, 4, 3, 2, 1]]), # priority weights
+    autoscale=True,
+    objective=ec.Objective.ENTROPY
+)
+
 # array([7.42767781e-06, 1.78542362e-05, 2.13985906e-05, 2.52127750e-05,
 #        2.80850144e-05, 3.00345197e-05, 1.17109605e-04])
 
@@ -248,6 +342,18 @@ weights[1:10]
 check = np.multiply(covs, weights.reshape(weights.size, 1))
 calcmeans = check.sum(axis=0)  # ok, this hits the means
 calcsums = calcmeans * nsamp
+
+wh.shape
+wh_avg.shape
+iweights =(wh / wh_avg)
+iweights.shape
+weights.shape
+newwtts = wh / wh_avg * weights.reshape((weights.size, 1))
+iweights
+newwtts
+np.dot(xmat.T, newwtts) * nsamp
+np.dot(xmat.T, iweights) * nsamp
+tsums
 
 # compare means
 tmeans  # targets
@@ -292,7 +398,11 @@ total.shape
 d.shape
 
 # grake
+a = timer()
 g = rake(Xs, d, total)
+b = timer()
+b - a
+
 g * p.wh
 g * d
 
@@ -322,40 +432,6 @@ np.square(wpdiff).sum()
 
 
 
-def rake(Xs, d, total, q=1):
-    # this is a direct translation of the raking code of the calib function
-    # in the R sampling package, as of 10/3/2020
-    # Xs the matrix of covariates
-    # d vector of initial weights
-    # total vector of targets
-    # q vector or scalar related to heteroskedasticity
-    # returns g, which when multiplied by the initial d gives the new weight
-    EPS1 = 1e-8  # R calib uses 1e-6
-    max_iter = 10
-    lam = np.zeros((Xs.shape[1], 1))
-    w1 = d * np.exp(np.dot(Xs, lam) * q)
-    # operands could not be broadcast together with shapes (20,1) (100,1)
-    for i in range(max_iter):
-        phi = np.dot(Xs.T, w1) - total
-        T1 = (Xs * w1).T
-        phiprim = np.dot(T1, Xs)
-        lam = lam - np.dot(np.linalg.pinv(phiprim, rcond = 1e-15), phi)
-        w1 = d * np.exp(np.dot(Xs, lam) * q)
-        if np.isnan(w1).any() or np.isinf(w1).any():
-            warnings.warn("No convergence")
-            g = None
-            break
-        tr = np.inner(Xs.T, w1.T)
-        if np.max(np.abs(tr - total) / total) < EPS1:
-            break
-        if i==max_iter:
-            warnings.warn("No convergence")
-            g = None
-        else:
-            g = w1 / d
-    print(i)
-    return g
-
 
 
     # else if (method == "raking") {
@@ -383,4 +459,161 @@ def rake(Xs, d, total, q=1):
     #     else g = w1/d
     # }
 
+
+# %% qraking approach using the rake function
+p = mtp.Problem(h=10, s=3, k=2)
+p = mtp.Problem(h=100, s=7, k=3)
+Xs = p.xmat
+w = p.wh.reshape(p.wh.size, 1)
+TTT = p.targets
+m = TTT.shape[0]  # number of states
+n = Xs.shape[0]  # number of households
+
+# TTT = targets1
+
+# total = p.targets[0, ].reshape(p.targets.shape[1], 1) # 1-column matrix (array)
+# ratio = p.targets[0, 0] / p.targets[:, 0].sum()
+# d = (p.wh * ratio * 1.0).reshape((p.wh.size, 1))
+
+# form the Q matrix
+# each state's share of total returns, treating target 0 as # of returns
+shares = TTT[:, 0] / TTT[:, 0].sum()
+shares.sum()
+Q = np.tile(shares, n).reshape((n, m))
+
+# Q[0, :].sum()
+# Q.sum(axis=1).size
+
+Qnew = qrake(Q, w, Xs, TTT)
+np.abs(Q.sum(axis=1) - 1).sum()
+np.abs(Qnew.sum(axis=1) - 1).sum()
+
+# np.abs(Q.sum(axis=0) - 1).sum()
+
+
+whs = w * Q
+whs.sum(axis=1)
+w
+ctargs = np.dot(whs.T, Xs)
+np.round(ctargs - TTT, 2)
+np.square(ctargs - TTT).sum()
+
+whsnew = w * Qnew
+whsnew.sum(axis=1)
+w
+ctargsnew = np.dot(whsnew.T, Xs)
+np.round(ctargsnew - TTT, 2)
+np.square(ctargsnew - TTT).sum()
+
+Q.shape
+w.shape
+Xs.shape
+TTT.shape
+whs.shape
+# djb1=Xsw; djb2=Q[:, i]; djb3=TTT[i, :]
+
+def qrake(Q, w, Xs, TTT):
+    EPS = 1e-6  # acceptable error (tolerance)
+    MAX_ITER = 500
+    ver = 1  # initialize error in sum of weight shares across states
+    k = 1  # initialize iteration count
+    m = TTT.shape[0]  # number of states
+    # compute before the loop to save a little time (calib calcs in the loop)
+    Xsw = Xs * w  # Xsw.shape n x number of targets
+    # i = 0
+    Q = Q.copy()
+
+    while (ver > EPS) & (k <= MAX_ITER):
+        print("Iteration: ", k)
+        for i in range(m):
+            print("Area: {} of {}:{}, result: ".format(i, 0, m - 1), end='')
+            g = rake(Xsw, Q[:, i], TTT[i, :])
+            if np.isnan(g).any() or np.isinf(g).any() or g.any()==0:
+                # g = rep(1,length(Q[,i]))
+                g = np.ones(g.size)
+                print("non done") # we'll need to do this one again
+            else:
+                # print("done")
+                Q[:, i] = Q[:, i] * g.reshape(g.size, )
+                print(np.abs(Q.sum(axis=1) - 1).sum())
+
+        # diff to be compared to epsilon
+        absdiff = np.abs(Q.sum(axis=1) - 1)
+        ver = absdiff.sum()
+        if np.isinf(absdiff).any():
+            ver = 1e-5
+            print("Existence of infinite coefficients --> non-convergence.")
+
+        print("Stop condition: {}".format(ver))
+        Q = Q / Q.sum(axis=1)[:,None]  # so that we have proper broadcasting
+        print(np.abs(Q.sum(axis=1) - 1).sum())
+        p
+        k = k + 1
+        if k > MAX_ITER:
+            print("Maximal number of iterations: non convergence .")
+
+    return Q
+
+
+# MatrixCalib <- function(Q,w,Xs){
+# 	ver=1
+# 	k=1
+# 	while(ver>10^(-5) & k <=500)
+# 	{
+# 		cat(" n.iter = ", k,"\n")
+# 		for(i in 1:m)
+# 		{
+# 			cat("Domain ",nom[i],": calibration ")
+# 			g = calib((Xs*w),Q[,i],TTT[i,],method="raking")
+# 			if (is.null(g) | any(is.na(g)) | any(g == 0) | any(is.infinite(g)) ) {g = rep(1,length(Q[,i]));cat("non done","\n")}
+# 			else {cat("done","\n")}
+# 			Q[,i]=Q[,i]*g
+# 		}
+# 	ver = sum(abs(rowSums(Q)-1))
+# 	if (any(is.infinite(abs(rowSums(Q)-1)))) {ver = 10^(-5);cat("Existence of infinite coefficient(s) : non convergence\n")}
+# 	cat("Stop condition :\n ")
+# 	print(ver)
+# 	Q=Q/rowSums(Q)
+# 	k=k+1
+# 	if (k > 500) cat("Maximal number of iterations not achieved : non convergence \n")
+# 	}
+# 	Q
+# }
+
+######################################################
+
+# here is the r sampling code for calib with method = raking
+# where Xs is the matrix of covariates (matrix of calibration variables)
+# d is the vector of initial weights
+# q is vector of positive values accounting for heteroscedasticity; the variation of the g-weights is reduced for small values of q
+# EPS = .Machine$double.eps
+# EPS1 = 1e-06
+# total is vector of population totals
+
+
+
+    else if (method == "raking") {
+        lambda = as.matrix(rep(0, ncol(Xs)))
+        w1 = as.vector(d * exp(Xs %*% lambda * q))
+        for (l in 1:max_iter) {
+            phi = t(Xs) %*% w1 - total
+            T1 = t(Xs * w1)
+            phiprim = T1 %*% Xs
+            lambda = lambda - ginv(phiprim, tol = EPS) %*% phi
+            w1 = as.vector(d * exp(Xs %*% lambda * q))
+            if (any(is.na(w1)) | any(is.infinite(w1))) {
+                warning("No convergence")
+                g = NULL
+                break
+            }
+            tr = crossprod(Xs, w1)
+            if (max(abs(tr - total)/total) < EPS1)
+                break
+        }
+        if (l == max_iter) {
+            warning("No convergence")
+            g = NULL
+        }
+        else g = w1/d
+    }
 

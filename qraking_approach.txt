@@ -66,3 +66,41 @@ MatrixCalib <- function(Q,w,Xs){
 }
 
 ######################################################
+
+# here is the r sampling code for calib with method = raking
+where Xs is the matrix of covariates (matrix of calibration variables)
+d is the vector of initial weights
+q is vector of positive values accounting for heteroscedasticity; the variation of the g-weights is reduced for small values of q
+EPS = .Machine$double.eps
+EPS1 = 1e-06
+total is vector of population totals
+
+
+
+    else if (method == "raking") {
+        lambda = as.matrix(rep(0, ncol(Xs)))
+        w1 = as.vector(d * exp(Xs %*% lambda * q))
+        for (l in 1:max_iter) {
+            phi = t(Xs) %*% w1 - total
+            T1 = t(Xs * w1)
+            phiprim = T1 %*% Xs
+            lambda = lambda - ginv(phiprim, tol = EPS) %*% phi
+            w1 = as.vector(d * exp(Xs %*% lambda * q))
+            if (any(is.na(w1)) | any(is.infinite(w1))) {
+                warning("No convergence")
+                g = NULL
+                break
+            }
+            tr = crossprod(Xs, w1)
+            if (max(abs(tr - total)/total) < EPS1)
+                break
+        }
+        if (l == max_iter) {
+            warning("No convergence")
+            g = NULL
+        }
+        else g = w1/d
+    }
+
+
+
