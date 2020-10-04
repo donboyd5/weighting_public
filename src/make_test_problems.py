@@ -11,7 +11,7 @@ from numpy.random import seed
 class Problem:
     """Problem elements."""
 
-    def __init__(self, h, s, k):
+    def __init__(self, h, s, k, xsd=.02, ssd=.02):
 
         self.h = h
         self.s = s
@@ -19,11 +19,14 @@ class Problem:
 
         # prepare xmat
         seed(1)
-        r = np.random.randn(h, k) / 100  # random normal)
+        r = np.random.normal(0, xsd, (h, k))
+        # r = np.random.randn(h, k) / 100  # random normal)
         xmean = 100 + 20 * np.arange(0, k)
         self.xmat = xmean * (1 + r)
 
-        self.whs = 10 + 10 * np.random.rand(h, s)
+        r = np.random.normal(0, ssd, (h, k))
+        r[r < -.9] = -.9  # so that whs cannot be close to zero
+        self.whs = 10 + 10 * (1 + r)
         self.wh = self.whs.sum(axis=1)
         self.ws = self.whs.sum(axis=0)
         self.targets = np.dot(self.whs.T, self.xmat)

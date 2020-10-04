@@ -24,6 +24,10 @@ import empirical_calibration as ec
 # pip install -q rdata
 import rdata
 
+
+# %% utility functions
+
+
 # %% functions
 # rake(Xsw, Q[:, i], TTT[i, :]) # TTT[i, :]
 
@@ -176,8 +180,34 @@ weights3, l2_norm = ec.maybe_exact_calibrate(
 l2_norm
 tmeans
 # data times weights
-check = np.multiply(dssamp[cols], weights2.reshape(weights.size, 1))
+check = np.multiply(dssamp[cols], weights3.reshape(weights3.size, 1))
 check.sum(axis=0) # ok, this hits the means
+
+# make up some fake baseline weights that are a bit like the "true" weights
+np.random.seed(123)
+noise = np.random.normal(0, weights.std() / 10, weights3.shape)
+bw = weights3 + noise
+bw.min()  # make sure no negative weights
+
+weights3b, l2_norm = ec.maybe_exact_calibrate(
+    covariates=dssamp[cols], # 100 rows
+    target_covariates=tmeans,   # tmeans
+    target_weights=np.array([[.25, .75]]), # make one target more important than another?
+    baseline_weights=bw,
+    objective=ec.Objective.ENTROPY
+)
+l2_norm
+tmeans
+np.dot(dssamp[cols].T, weights3b)
+weights3[0:10]
+weights3b[0:10]
+
+# are these weights closer to baseline than the actual weights? yes
+np.square(weights3 - bw).sum()
+np.square(weights3b - bw).sum()
+np.round(np.abs(weights3 - bw)[0:9], 4)
+np.round(np.abs(weights3b - bw)[0:9], 4)
+
 
 
 covs = pd.DataFrame(dssamp[cols].sum(axis=0))
@@ -195,63 +225,57 @@ weights.size # 100, the same size as the sample - so we get a weight for each
 weights.sum()
 
 
-# %% test weighting
-p = mtp.Problem(h=20, s=3, k=2)
-p = mtp.Problem(h=100, s=8, k=4)
-p = mtp.Problem(h=1000, s=20, k=8)
-p = mtp.Problem(h=10000, s=40, k=15)
-p = mtp.Problem(h=40000, s=50, k=30)
-p = mtp.Problem(h=200000, s=50, k=30)
-p = mtp.Problem(h=int(1e6), s=50, k=100)
+# %% test weighting with empirical calibration
+p = mtp.Problem(h=20, s=3, k=2, xsd=.1, ssd=.5)
+p = mtp.Problem(h=100, s=8, k=4, xsd=.1, ssd=.5)
+p = mtp.Problem(h=1000, s=20, k=8, xsd=.1, ssd=.5)
+p = mtp.Problem(h=10000, s=40, k=15, xsd=.1, ssd=.5)
+p = mtp.Problem(h=30000, s=40, k=30, xsd=.1, ssd=.5)  # typical stub size?
+p = mtp.Problem(h=40000, s=50, k=30, xsd=.1, ssd=.5)
+p = mtp.Problem(h=200000, s=50, k=30, xsd=.1, ssd=.5)
+p = mtp.Problem(h=300000, s=1, k=100, xsd=.1, ssd=.5)  # our problem size?
+p = mtp.Problem(h=int(1e6), s=50, k=100, xsd=.1, ssd=.5)
 
-p.wh
-p.xmat
-p.xmat.shape
-p.targets
+# p.wh
+# p.wh.shape
+# p.xmat
+# p.xmat.shape
+# p.targets
+
+natsums = np.dot(p.xmat.T, p.wh)
+np.round(p.targets.sum(axis=0) - natsums, 3)  # check
+pop = p.wh.sum()
+natmeans = natsums / pop
+
+# "mean-producing" weights
+mpw = p.wh / pop
+np.dot(p.xmat.T, mpw)
+natmeans
 
 # pick a state row (zero based) for targets
-st = 7
+st = 0
+tsums = p.targets[st, ]
+stpop = pop * tsums[0] / natsums[0]  # get the state pop sum from somewhere
+tmeans = tsums / stpop
 
-natsums = p.targets.sum(axis=0)  # national sum for each variable
-shares = np.multiply(p.targets, 1 / natsums)
-shares.sum(axis=0)
+tmeans / natmeans
+tsums / natsums
 
-npop = p.wh.sum()
-nsamp = npop * shares[st, 0]
-
-
-tsums = p.targets[st, ]  # .shape # (2, )
-# nsamp = tsums[0]  # treat the first variable as if it is a count
-tmeans = tsums / nsamp
+impw = mpw
+ispw = mpw * stpop
+# check these initial weights
+np.dot(p.xmat.T, impw)
 tmeans
 
-# tcovs = tmeans.reshape((1, tmeans.size))
+tsums
+np.dot(p.xmat.T, ispw)
 
-# covs = np.multiply(p.xmat, p.wh.reshape(p.wh.size, 1))
-# covs2 = covs * shares[st, 0]
-
-# bw = p.wh.reshape((p.wh.size, 1)) / 3
-
-# p.xmat.shape  # 20, 2
-# covs = p.xmat
-covs = np.multiply(p.xmat, p.wh.reshape(p.wh.size, 1))
-covs.sum(axis=0)
-covs.mean(axis=0)
-covs2 = covs * tmeans[0] / covs.mean(axis=0)[0]
-covs2.mean(axis=0)
-tmeans
-
-# covs.shape
-# covs2 = covs * shares[1, 0] # np.multiply(covs, )
-# covs2.shape
-# tcovs.shape  # 1, 2
-# bw.shape
-
+# solve for optimal mean-producing weights
 a = timer()
-weights4, l2_norm = ec.maybe_exact_calibrate(
-    covariates=covs2, # 1 row per person
-    target_covariates=tmeans.reshape((1, tmeans.size)),   # tmeans
-    # baseline_weights=bw,
+ompw, l2_norm = ec.maybe_exact_calibrate(
+    covariates=p.xmat, # 1 row per person
+    target_covariates=tmeans.reshape((1, -1)),   # tmeans
+    baseline_weights=impw,
     # target_weights=np.array([[.25, .75]]), # make one target more important than another?
     autoscale=True,
     objective=ec.Objective.ENTROPY
@@ -259,119 +283,114 @@ weights4, l2_norm = ec.maybe_exact_calibrate(
 b = timer()
 b - a
 l2_norm
-# tmeans
 
-# covs2.sum(axis=0)
+tmeans
+np.dot(p.xmat.T, ompw)
 
-# data times weights
-check = np.multiply(covs2, weights4.reshape(weights4.size, 1))
-calcmeans = check.sum(axis=0) # ok, this hits the means
+ospw = ompw * stpop  # optimal sum-producing weights
+tsums
+np.dot(p.xmat.T, ospw)
+pdiff = (np.dot(p.xmat.T, ospw) - tsums) / tsums * 100
+np.square(pdiff).sum()
 
-# compare means
-tmeans  # targets
-initmeans = covs2.mean(axis=0)  # initial means
-calcmeans  # after weighting
-np.square(initmeans - tmeans).sum()
-np.square(calcmeans - tmeans).sum()
+wdiffs = ospw- ispw
+wpdiffs = wdiffs / ispw * 100
+np.square(wdiffs).sum()
+np.square(wpdiffs).sum()
+
+qtiles = [0, .1, .25, .5, .75, .9, 1]
+np.quantile(ispw, qtiles)
+np.quantile(ospw, qtiles)
+np.round(np.quantile(wpdiffs, qtiles), 2)
 
 
-# %% good agistub
-# assume we already have targets, wh, and xmat
+# %% target a single state in an AGI stub
+# presumes we have certain items
+xmat
+wh
+targets
+# get rid of 3rd target (number 2), single returns
+# targets_bak = targets
+# xmat_bak = xmat
+targets.shape
+targets = np.delete(targets, obj=2, axis=1)
+targets.shape
 
+xmat.shape
+xmat = np.delete(xmat, obj=2, axis=1)
+xmat.shape
+
+targets = targets_bak
+xmat = xmat_bak
+
+natsums = np.dot(xmat.T, wh)
+np.round(targets.sum(axis=0) - natsums, 3)  # check
+pop = wh.sum()
+natmeans = natsums / pop
+
+# "mean-producing" weights
+mpw = wh / pop
+np.dot(xmat.T, mpw)
+natmeans
+
+# pick a state row (zero based) for targets
 st = 0
+tsums = targets[st, ]
+stpop = pop * tsums[0] / natsums[0]  # get the state pop sum from somewhere
+tmeans = tsums / stpop
 
-natsums = targets.sum(axis=0)  # national sum for each variable
+tmeans / natmeans
+tsums / natsums
 
-wh = wh.reshape(wh.size, 1)
-wh_avg = wh.mean()
-npop = wh.sum()
-nsamp = targets[st, 0]  # treat first variable as a count for which we want shares
+# initial mean-producing and sum-producing weights
+impw = mpw
+ispw = mpw * stpop
+# check these initial weights
+np.dot(xmat.T, impw)
+tmeans
 
-# tmeans, used for target covariates, must be 2d array, so make tsums 2d array
-# tsums are the actual total targets, tmeans are the mean per return
-tsums = targets[st, ].reshape((1, tsums.size))  # must be 2d array (1, ntargs)
-tmeans = tsums / nsamp  # .reshape((1, tsums.size))  # must be 2d array (1, ntargs)
+tsums
+np.dot(xmat.T, ispw)
 
-covs = xmat * (wh / wh_avg)
-initmeans = covs.mean(axis=0)  # initial weighted means
-initsums = initmeans * nsamp
-
-# uniform baseline weights
-bw = wh * nsamp / npop
-bw = bw / bw.sum()
-bw
-
-# bw = np.ones(wh.size) * 1 / xmat.shape[0] # this works
-# wgood = weights.reshape(weights.size, 1)
-bw
-wh.shape
-
-tmp = xmat* wh / wh_avg * wgood
-tmp.sum(axis=0)
-
+# solve for optimal mean-producing weights
 a = timer()
-weights, l2_norm = ec.maybe_exact_calibrate(
-    covariates=xmat* wh / wh_avg, # covs, # 1 row per person
-    target_covariates=tmeans,  # tcovs,
-    # baseline_weights=wgood,
-    # target_weights=np.array([[1, 2, 3, 4, 3, 2, 1]]), # priority weights
-    autoscale=True,
+ompw, l2_norm = ec.maybe_exact_calibrate(
+    covariates=xmat, # 1 row per person
+    target_covariates=tmeans.reshape((1, -1)),   # tmeans
+    baseline_weights=impw,
+    # make some targets more important than others
+    # target_weights=np.array([[1, 1, 1, 1, 1, 1]]),
+    # autoscale=True,  # does not seem to work well
     objective=ec.Objective.ENTROPY
 )
 b = timer()
 b - a
 l2_norm
-np.quantile(weights, [0, .1, .25, .5, .75, .9, 1])
-weights.sum()
-weights[1:10]
+ompw.sum()  # should sum to 1
 
-iweights =(wh / wh_avg) / nsamp
-weights, l2_norm = ec.maybe_exact_calibrate(
-    covariates=xmat, # covs, # 1 row per person
-    target_covariates=tmeans,  # tcovs,
-    baseline_weights=iweights,
-    # target_weights=np.array([[1, 2, 3, 4, 3, 2, 1]]), # priority weights
-    autoscale=True,
-    objective=ec.Objective.ENTROPY
-)
+qtiles = [0, .1, .25, .5, .75, .9, 1]
 
-# array([7.42767781e-06, 1.78542362e-05, 2.13985906e-05, 2.52127750e-05,
-#        2.80850144e-05, 3.00345197e-05, 1.17109605e-04])
+tmeans
+np.dot(xmat.T, ompw)
 
-# data times weights
-check = np.multiply(covs, weights.reshape(weights.size, 1))
-calcmeans = check.sum(axis=0)  # ok, this hits the means
-calcsums = calcmeans * nsamp
-
-wh.shape
-wh_avg.shape
-iweights =(wh / wh_avg)
-iweights.shape
-weights.shape
-newwtts = wh / wh_avg * weights.reshape((weights.size, 1))
-iweights
-newwtts
-np.dot(xmat.T, newwtts) * nsamp
-np.dot(xmat.T, iweights) * nsamp
+# compare targets
+ospw = ompw * stpop  # optimal sum-producing weights
 tsums
+np.dot(xmat.T, ospw)
+pdiffs = (np.dot(xmat.T, ospw) - tsums) / tsums * 100
+np.round(pdiffs, 2)
+np.square(pdiffs).sum()
+np.round(np.quantile(pdiffs, qtiles), 2)
 
-# compare means
-tmeans  # targets
-initmeans  # initial means
-calcmeans  # after weighting
-np.square(initmeans - tmeans).sum()
-np.square(calcmeans - tmeans).sum()
+# compare weights
+wdiffs = ospw - ispw
+wpdiffs = wdiffs / ispw * 100
+np.square(wdiffs).sum()
+np.square(wpdiffs).sum()
 
-# compare sums
-tsums
-initsums
-calcsums
-np.square(initsums - tsums).sum()
-np.square(calcsums - tsums).sum()
-
-# pct differences in sums
-np.square((initsums - tsums) / tsums * 100).sum()
-np.square((calcsums - tsums) / tsums * 100).sum()
+np.quantile(ispw, qtiles)
+np.quantile(ospw, qtiles)
+np.round(np.quantile(wpdiffs, qtiles), 2)
 
 
 # %% R calib raking function

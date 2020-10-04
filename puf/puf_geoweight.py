@@ -840,6 +840,8 @@ targstates = ['AL', 'AR', 'CA', 'CT', 'FL', 'GA', 'MA', 'MN', 'NJ', 'NY', 'OH', 
 targstates = ['AK', 'AL', 'AR', 'CA', 'CT', 'FL', 'GA', 'MD',
               'MA', 'MN', 'NH', 'NJ', 'NY', 'OH', 'OR', 'PA', 'TN', 'TX', 'VT', 'WA']
 
+targstates = STATES
+
 
 # %% prepare a single stub for geoweighting
 pufsub.columns
@@ -901,6 +903,7 @@ xmat.shape
 # targets = ht2stub_adj # .drop(columns=['STATE', 'HT2_STUB'])
 targets = np.asarray(ht2stub_adj, dtype=float)
 targets
+targets.shape
 # targets_scaled = targets * ratios
 # targets.shape
 # targets_scaled.shape
