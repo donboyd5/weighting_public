@@ -25,5 +25,6 @@ def getmem(objects=dir()):
             mem[i] = sys.getsizeof(eval(i))
     mem = pd.Series(mem) / mb
     mem = mem.sort_values(ascending=False)
+    # print("Memory in megabytes:")
     return mem
 

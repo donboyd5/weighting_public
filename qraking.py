@@ -387,6 +387,8 @@ wdiffs = ospw - ispw
 wpdiffs = wdiffs / ispw * 100
 np.square(wdiffs).sum()
 np.square(wpdiffs).sum()
+# 9693566.633685842 with baseline weights
+# 1767558944166.2852 without baseline weights
 
 np.quantile(ispw, qtiles)
 np.quantile(ospw, qtiles)

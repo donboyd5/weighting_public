@@ -191,7 +191,7 @@ def gfun(x, xmat, targets, objscale, diff_weights):
     return grad.flatten()
 
 
-f_hvp = hvp(f)  # maybe I could put this inside of f_hvp_wrap but only call the first time?
+# f_hvp = hvp(f)  # maybe I could put this inside of f_hvp_wrap but only call the first time?
 def f_hvp_wrap(x, p, xmat, targets, objscale, diff_weights):
     return f_hvp(x, p, xmat=xmat, targets=targets, objscale=objscale, diff_weights=diff_weights)
 
@@ -826,6 +826,7 @@ targvars = ['nret_all', 'nret_mars1', 'nret_mars2', 'c00100', 'e00200',
             'e00300', 'e00600']
 targvars + ['HT2_STUB']
 
+targstates = ['CA']
 targstates = ['CA', 'FL', 'NY', 'TX']
 targstates = ['CA']
 targstates = ['CA', 'FL']
@@ -841,13 +842,13 @@ targstates = ['AK', 'AL', 'AR', 'CA', 'CT', 'FL', 'GA', 'MD',
               'MA', 'MN', 'NH', 'NJ', 'NY', 'OH', 'OR', 'PA', 'TN', 'TX', 'VT', 'WA']
 
 targstates = STATES
-
+targstates = [x for x in STATES if x not in 'AK']
 
 # %% prepare a single stub for geoweighting
 pufsub.columns
 pufsub[['HT2_STUB', 'pid']].groupby(['HT2_STUB']).agg(['count'])
 
-stub = 4
+stub = 10
 pufstub = pufsub.query('HT2_STUB == @stub')[['pid', 'HT2_STUB', 'wtnew'] + targvars]
 pufstub
 

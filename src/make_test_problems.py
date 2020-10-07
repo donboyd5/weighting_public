@@ -24,7 +24,7 @@ class Problem:
         xmean = 100 + 20 * np.arange(0, k)
         self.xmat = xmean * (1 + r)
 
-        r = np.random.normal(0, ssd, (h, k))
+        r = np.random.normal(0, ssd, (h, s))
         r[r < -.9] = -.9  # so that whs cannot be close to zero
         self.whs = 10 + 10 * (1 + r)
         self.wh = self.whs.sum(axis=1)
