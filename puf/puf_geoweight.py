@@ -818,12 +818,28 @@ ht2_sub_adj = ht2_sub_adjlong.pivot(index=['HT2_STUB', 'STATE'], columns='variab
 ht2sumsadj = ht2_sub_adj.query('STATE=="US"')
 pufsums / ht2sumsadj
 
+# ht2_sub_adj.query('STATE=="OA"')
+
 ht2_sub_adj = ht2_sub_adj.reset_index() # get indexes as columns
 
 
 # %% choose a definition of targvars and targstates
 targvars = ['nret_all', 'nret_mars1', 'nret_mars2', 'c00100', 'e00200',
             'e00300', 'e00600']
+
+targvars = ['nret_all', 'nret_mars2', 'c00100', 'e00200',
+            'e00300', 'e00600']
+
+targvars = ['nret_all', 'nret_mars2', 'c00100', 'e00200', 'e00300']
+targvars = ['nret_all', 'nret_mars2', 'c00100', 'e00200']
+targvars = ['nret_all', 'nret_mars2', 'c00100']
+
+targvars = ['nret_all', 'nret_mars1', 'nret_mars2', 'c00100']
+targvars = ['nret_all', 'nret_mars1', 'nret_mars2', 'c00100', 'e00600']
+
+targvars = ['nret_all', 'nret_mars1', 'nret_mars2', 'c00100', 'e00300', 'e00600']
+
+
 targvars + ['HT2_STUB']
 
 targstates = ['CA']
@@ -841,19 +857,26 @@ targstates = ['AL', 'AR', 'CA', 'CT', 'FL', 'GA', 'MA', 'MN', 'NJ', 'NY', 'OH', 
 targstates = ['AK', 'AL', 'AR', 'CA', 'CT', 'FL', 'GA', 'MD',
               'MA', 'MN', 'NH', 'NJ', 'NY', 'OH', 'OR', 'PA', 'TN', 'TX', 'VT', 'WA']
 
+targstates = ['UT']
+
 targstates = STATES
-targstates = [x for x in STATES if x not in 'AK']
+
+badstates = ['AK', 'OA']
+badstates = ['AK', 'ND', 'SD', 'UT', 'WY', 'OA']
+badstates = ['AK', 'ND', 'SD', 'WY', 'OA']
+targstates = [x for x in STATES if x not in badstates]
+
 
 # %% prepare a single stub for geoweighting
 pufsub.columns
 pufsub[['HT2_STUB', 'pid']].groupby(['HT2_STUB']).agg(['count'])
 
-stub = 10
+stub = 1
 pufstub = pufsub.query('HT2_STUB == @stub')[['pid', 'HT2_STUB', 'wtnew'] + targvars]
 pufstub
 
 # use one of the following ht2_sub_adj
-ht2stub = ht2_sub.query('HT2_STUB == @stub & STATE != "US"')[['STATE', 'HT2_STUB'] + targvars]
+# ht2stub = ht2_sub.query('HT2_STUB == @stub & STATE != "US"')[['STATE', 'HT2_STUB'] + targvars]
 ht2stub = ht2_sub_adj.query('HT2_STUB == @stub & STATE != "US"')[['STATE', 'HT2_STUB'] + targvars]
 ht2stub
 # show average target value per return times 100

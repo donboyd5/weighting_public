@@ -22,9 +22,9 @@ class Geoweight:
         xmat: h x k matrix of characteristics for each household
         wh: 1 x h vector of national weights for households
         whs: h x s matrix of state weights for households (to be solved for)
-            for each household, the sum of state weights must equal the 
+            for each household, the sum of state weights must equal the
             total household weight
-        
+
         beta: s x k matrix of poisson model coefficients
             (same for all households)
         delta: 1 x h vector of poisson model constants, 1 per household
@@ -54,6 +54,7 @@ class Geoweight:
 
         result = least_squares(targets_diff, betavec0,
                      method='trf', jac='2-point', verbose=2,
+                     ftol=1e-10, xtol=1e-10,
                      args=(self.wh, self.xmat, self.targets, dw))
         self.result = result
         end = timer()
@@ -63,7 +64,7 @@ class Geoweight:
     def retrieve_values(self):
         self.beta_opt = self.result.x.reshape(self.targets.shape)
         self.delta_opt = get_delta(self.wh, self.beta_opt, self.xmat)
-        self.whs_opt = get_weights(self.beta_opt, 
+        self.whs_opt = get_weights(self.beta_opt,
                                    self.delta_opt, self.xmat)
         self.targets_opt = get_targets(self.beta_opt,
                                        self.wh, self.xmat)
