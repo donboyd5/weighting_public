@@ -861,6 +861,7 @@ targstates = ['UT']
 
 targstates = STATES
 
+badstates = ['OA']
 badstates = ['AK', 'OA']
 badstates = ['AK', 'ND', 'SD', 'UT', 'WY', 'OA']
 badstates = ['AK', 'ND', 'SD', 'WY', 'OA']

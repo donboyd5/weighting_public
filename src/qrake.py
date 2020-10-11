@@ -117,7 +117,7 @@ https://github.com/google/empirical_calibration/blob/master/notebooks/survey_cal
 """
 
 
-# %% imports and constants
+# %% imports
 
 import warnings
 import numpy as np
@@ -130,9 +130,22 @@ from timeit import default_timer as timer
 # pip install -q git+https://github.com/google/empirical_calibration
 import empirical_calibration as ec
 
+
+# %% constants
+
 SMALL_POSITIVE = np.nextafter(np.float64(0), np.float64(1))
+# not sure if needed: a small nonzero number that can be used as a divisor
+SMALL_DIV = SMALL_POSITIVE * 1e16
+# 1 / SMALL_DIV  # does not generate warning
+
 QUADRATIC = ec.Objective.QUADRATIC
 ENTROPY = ec.Objective.ENTROPY
+
+STLIST = ['AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DC', 'DE', 'FL', 'GA',
+          'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD',
+          'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ',
+          'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC',
+          'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY']
 
 qtiles = [0, .01, .1, .25, .5, .75, .9, .99, 1]
 
@@ -161,13 +174,176 @@ def gec(xmat, wh, targets,
         objective=objective,  # ENTROPY or QUADRATIC
         increment=increment
     )
-    print(l2_norm)
+    # print(l2_norm)
 
     # wh, when multiplied by g, will yield the targets
     g = ompw * pop / wh
     g = np.array(g, dtype=float).reshape((-1, ))  # djb
 
     return g
+
+
+def qrake(Q, wh, xmat, targets,
+          method='raking', maxiter=200, drops=None,
+          objective: ec.Objective = ec.Objective.ENTROPY,):
+    """
+
+    Parameters
+    ----------
+    Q : 2d array
+        DESCRIPTION.
+    w : 1d array
+        DESCRIPTION.
+    xmat : TYPE
+        DESCRIPTION.
+        Note: this was Xs in the R code.
+    targets : TYPE
+        Note that this was TTT in the R code provided by Toky Randrianasolo.
+
+    Returns
+    -------
+    Q : TYPE
+        DESCRIPTION.
+
+    """
+
+    def print_problem():
+        print(' Number of households:                {:8,}'.format(wh.size))
+        print(' Number of areas:                     {:8,d}'.format(m))
+        print()
+        print(' Number of targets per area:          {:8,d}'.format(nt_per_area))
+        print(' Number of potential targets, total:  {:8,d}'.format(nt_possible))
+        print(' Number of targets dropped:           {:8,d}'.format(nt_dropped))
+        print(' Number of targets used:              {:8,d}'.format(nt_used))
+
+    a = timer()
+
+    if method == 'raking':
+        gfn = rake
+        objective = None
+    elif method == 'raking-ec':
+        gfn = gec
+
+    # constants
+    # EPS = 1e-5  # acceptable weightsum error (tolerance) - 1e-5 in R code
+    TOL_WTDIFF = 0.0005  # tolerance for difference between weight sum and 1
+    TOL_TARGPCTDIFF = 0.1  # tolerance for targets percent difference
+
+    # initialize stopping criteria values
+    ediff = 1  # error, called ver in Toky R code
+    iter = 1  # initialize iteration count called k in Toky R. R code
+
+    # difference in weights - Toky R. used sum of absolute weight differences,
+    # I use largest absolute weight difference
+    max_weight_absdiff = 1e9  # initial maximum % difference between sums of weights for a household and 100
+    max_targ_abspctdiff = 1e9  # initial maximum % difference vs targets
+
+    m = targets.shape[0]  # number of states
+    wh = wh.reshape((-1, 1))  # ensure the proper shape
+
+    # compute xmat_wh before loop to(calib calculates it in the loop)
+    xmat_wh = xmat * wh  # shape -  n x number of targets
+
+    # numbers of targets
+    nt_per_area = targets.shape[1]
+    nt_possible = nt_per_area * m
+    if drops is None:
+        nt_dropped = 0
+    else:
+        nt_dropped = sum([len(x) for x in drops.values()])
+    nt_used = nt_possible - nt_dropped
+
+    # Making a copy of Q is crucial. We don't want to change the
+    # original Q.
+    Q = Q.copy()
+
+    print('')
+    print_problem()
+    # print(' Number of areas:            {:8,d}'.format(m))
+    # print(' Number targets per area:    {:8,d}'.format(targets.shape[1]))
+    # print(' Number households:          {:8,}'.format(wh.size))
+
+    h1 = "                  max weight      max target       p95 target"
+    h2 = "   iteration        diff           pct diff         pct diff"
+    print('\n')
+    print(h1)
+    print(h2, '\n')
+
+    while ((max_weight_absdiff > TOL_WTDIFF) or \
+           (max_targ_abspctdiff > TOL_TARGPCTDIFF)) & \
+        (iter <= maxiter):
+
+        print(' '*3, end='')
+        print('{:4d}'.format(iter), end='', flush=True)
+
+        for j in range(m):  # j indexes areas
+
+            #  drop any bad targets
+            # try to avoid copies??
+            targs = targets[j, :].copy()
+            xmat_wh2 = xmat_wh.copy()
+            if drops is not None:
+                badtargs = drops.get(j)
+            else:
+                badtargs = None
+            if badtargs is not None:
+                targs = np.delete(targs, badtargs, 0)
+                xmat_wh2 = np.delete(xmat_wh2, badtargs, 1)
+
+            g = gfn(xmat_wh2, Q[:, j], targs, objective=objective)
+
+            if np.isnan(g).any() or np.isinf(g).any() or g.any() == 0:
+                g = np.ones(g.size)
+                # we'll need to do this one again
+            else:
+                pass
+                # print("done with this area")
+            Q[:, j] = Q[:, j] * g.reshape(g.size, )  # end for loop
+
+        # we have completed all areas for this iteration
+        # calc max weight difference BEFORE recalibrating Q
+        abswtdiff = np.abs(Q.sum(axis=1) - 1)  # sum of weight-shares for each household
+        max_weight_absdiff = abswtdiff.max()  # largest sum across all households
+        print(' '*11, end='')
+        print(f'{max_weight_absdiff:8.4f}', end='')
+        if np.isinf(abswtdiff).any():
+            # these weight shares are not good, do another iteration
+            # ediff = EPS
+            max_weight_absdiff = TOL_WTDIFF
+            print("Existence of infinite coefficients --> non-convergence.")
+
+        #print("Weight sums max percent difference: {}".format(maxadiff))  # ediff
+        Q = Q / Q.sum(axis=1)[:, None]  # Recalibrate Q. Note None so that we have proper broadcasting
+
+        # calculate targets pct diff AFTER recalibrating Q
+        whs = np.multiply(Q, wh.reshape((-1, 1)))  # faster
+        diff = np.dot(whs.T, xmat) - targets
+        abspctdiff = np.abs(diff / targets * 100)
+        max_targ_abspctdiff = abspctdiff.max()
+        ptile = np.quantile(abspctdiff, (.95))
+        print(' '*6, end='')
+        print(f'{max_targ_abspctdiff:8.2f} %', end='')
+        print(' '*7, end='')
+        print(f'{ptile:8.2f} %')
+
+        iter = iter + 1
+        # end while loop
+
+    b = timer()
+    if iter > maxiter:
+        print('\nMaximum number of iterations exceeded.\n')
+
+    print('\n')
+    print_problem()
+
+    print('\nFinal values:')
+    print('  Max abs diff between sum of household weights and 1, across households: {:9.5f}'.format(max_weight_absdiff))
+    print('  Max abs percent diff, calc vs. desired targets:                         {:9.3f} %'.format(max_targ_abspctdiff))
+    print('  p95 of abs percent diff, calc vs. desired targets:                      {:9.3f} %'.format(ptile))
+    print('\nElapsed time: {:8.1f} seconds'.format(b - a))
+
+    return Q
+
 
 def gec2(xmat, wh, targets,):
     pop = wh.sum()
@@ -192,7 +368,7 @@ def gec2(xmat, wh, targets,):
     return g
 
 
-def qrake(Q, wh, xmat, targets, method='raking', maxiter=200):
+def qrake_bak20201011(Q, wh, xmat, targets, method='raking', maxiter=200):
     """
 
     Parameters
@@ -426,7 +602,7 @@ def ecrake(xmat, wh, targets):
     return g
 
 
-def rake(Xs, d, total, q=1):
+def rake(Xs, d, total, q=1, objective=None):
     # this is a direct translation of the raking code of the calib function
     # in the R sampling package, as of 10/3/2020
     # Xs the matrix of covariates
@@ -606,7 +782,9 @@ t2[1] = 1e9
 pvals = np.array([[1, 1e-9]])
 pvals
 
-
+# initial diffs and percent diffs
+np.dot(xmat.T, iwh) - t2
+np.round((np.dot(xmat.T, iwh) - t2) / t2 * 100, 3)
 
 g0 = gec(xmat, iwh, targets[s, ]); g0
 g1 = gec(xmat, iwh, t2, increment=.001); g1
@@ -618,33 +796,85 @@ g1 = gec(xmat, iwh, t2, increment=1e-13); g1
 
 g1 = np.where(np.isnan(g1), 0, g1)
 
+np.dot(xmat.T, iwh * g1) - t2
 np.round((np.dot(xmat.T, iwh * g1) - t2) / t2 * 100, 3)
 
-# drop a target for this state
-xmat.shape
-t2.shape
-tdrop = 0
 
-xmat3 = np.delete(xmat, tdrop, 1)
+# %% drop a target for this state
+# make a list with row numbers of the targets matrix and column numbers we will drop
+targets.shape
+targets
+
+# let's target state 3 (row 4) and cols 2 and 4, which we will set to really bad numbers
+drops = {0: (1, 2),
+         1: (1, 3),
+         3: (2, 4)}
+
+s = 3
+badtargs = list(drops.get(s))  # IMPORTANT: convert to list or use lists from start
+ratios = targets[s, ] / targets.sum(axis=0)
+iwh = wh * ratios[0]
+# iwh[0] = 0
+
+# pvals = np.ones((1, targets[s, ].size))
+# pvals = np.array([[1, .1]])
+
+# now make a vector that has bad values for the target and another vector
+# that drops those values, for which we will create an xmat with dropped cols
+t2 = targets[s, ].copy()
+t2[badtargs]
+t2[badtargs].shape
+
+t2[badtargs] * [.5, 1.5]
+badvals = t2[badtargs] * (.5, 1.5)
+t2[badtargs] = badvals
+
+badtargs = list(drops.get(s))
+t2 = targets[s, ].copy()
+t3 = np.delete(t2, badtargs, 0)
+xmat3 = np.delete(xmat, badtargs, 1)
+
+
+# review
+targets[s, ]
+t2
+t3
+xmat.shape
 xmat3.shape
 
-t3 = np.delete(t2, tdrop, 0)
-t3.shape
-g1d = gec(xmat3, iwh, t3, objective=QUADRATIC, increment=.001); g1d
-g1d = gec(xmat3, iwh, t3, objective=ENTROPY, increment=.001); g1d
-g1d = rake(xmat3, iwh, t3); g1d
-g1d = np.where(np.isnan(g1d), 0, g1d)
-np.round((np.dot(xmat3.T, iwh * g1d) - t3) / t3 * 100, 3)
-(np.dot(xmat.T, iwh * g1d) - t2)
-np.round((np.dot(xmat.T, iwh * g1d) - t2) / t2 * 100, 3)
+# initial diffs and percent diffs
+np.dot(xmat.T, iwh) - t2
+np.round((np.dot(xmat.T, iwh) - t2) / t2 * 100, 3)
 
-np.dot(xmat.T, iwh)
-np.dot(xmat.T, iwh * g1d)
-t2[tdrop]
+g0 = gec(xmat, iwh, targets[s, ]); g0
+g0r = rake(xmat, iwh, t2); g0r
+g2e = gec(xmat, iwh, t2, objective=ENTROPY, increment=.001); g2e # bad
+g2q = gec(xmat, iwh, t2, objective=QUADRATIC, increment=.001); g2q  # best, if we must keep a bad target
+g3e = gec(xmat3, iwh, t3, objective=ENTROPY, increment=.001); g3e
+g3q = gec(xmat3, iwh, t3, objective=QUADRATIC, increment=.001); g3q
+g3r = rake(xmat3, iwh, t3); g3r
 
+# diffs and percent diffs with different g's (and xmat where appropriate)
+np.dot(xmat.T, iwh * g0) - t2  # bad on the bad targes
+np.dot(xmat.T, iwh * g0r) - t2  # no good
+np.dot(xmat.T, iwh * g2e) - t2  # no good
+np.dot(xmat.T, iwh * g2q) - t2  # better
+np.round((np.dot(xmat.T, iwh * g2q) - t2) / t2 * 100, 3)
 
-g1 = gec(xmat, iwh, t2, increment=.1e-7, priorities=pvals); g1
-g2 = gec(xmat, iwh, t2, target_weights=pvals); g2
+# drops on the kept targets
+np.dot(xmat3.T, iwh * g0) - t3
+np.dot(xmat3.T, iwh * g3e) - t3
+np.dot(xmat3.T, iwh * g3q) - t3
+np.dot(xmat3.T, iwh * g3r) - t3  # good enough but not as close as others
+np.round((np.dot(xmat3.T, iwh * g3r) - t3) / t3 * 100, 3)
+
+# drops on all targets
+np.dot(xmat.T, iwh * g2q) - t2  # best undropped
+np.dot(xmat.T, iwh * g3e) - t2  # dropped
+
+np.round((np.dot(xmat.T, iwh * g2q) - t2) / t2 * 100, 3)
+np.round((np.dot(xmat.T, iwh * g3e) - t2) / t2 * 100, 3)
+
 gec(xmat, iwh, t2, target_weights=None)
 
 targets[s, ]
@@ -665,6 +895,27 @@ gec2(xmat, iwh, targets[s, ])
 
 %timeit gec(xmat, iwh, targets[s, ])
 %timeit gec2(xmat, iwh, targets[s, ])
+
+
+# %% create some drops
+# { keyName1 : value1, keyName2: value2, keyName3: [val1, val2, val3] }
+# which columns should we drop, for which states
+drops = {'AK': (1, 2),
+         'XX': (1, 3)}
+
+drops = {0: (1, 2),
+         1: (1, 3)}
+
+drops
+list(drops)
+for k, v in drops.items():
+    print(k, v)
+
+drops.get("XX")
+drops.get(0)
+drops['XX']
+drops[0]
+
 
 
 # %% get an AGI stub
@@ -732,7 +983,7 @@ np.quantile(g3, qtiles)
 # targvars
 
 
-# %% set the agistub problem that was devised in puf_geoweight up for qrake
+# %% set up agistub problem for qrake (devised in puf_geoweight up)
 
 # stub counts
 # HT2_STUB
@@ -875,17 +1126,37 @@ np.round(np.quantile(gtpdiff, qtiles), 1)
 # what if we dropped OA from HT2 and calc'd each state as share of the remaining
 # sum???
 
+# define rows and columns of targets to drop, using lists (NOT tuples)
+drops = {0: [1, 2],
+         1: [1, 3],
+         3: [2, 4]}
+
+drops = {3: [5],
+         7: [6],
+         8: [5]}
+
+drops = {50: [3, 6]}
+
+# badtargs = drops.get(3)
+
+# TODO: Only count good targets in the max targets
+# figure out how to avoid copying matrices - just define good indexes?
 
 # solve for optimal Q method can be raking or raking-ec
-Q_opt_r = qrake(Q, wh, xmat, targets, method='raking', maxiter=100)
+Q_opt_r = qrake(Q, wh, xmat, targets, method='raking', maxiter=50)
+Q_opt_rd = qrake(Q, wh, xmat, targets, method='raking', maxiter=50, drops=drops)
 #   0.0011              4.82 %
 # TODO: State-specific priority weights? UT in stub 1
 Q_opt_ec = qrake(Q, wh, xmat, targets, method='raking-ec', maxiter=50)
+Q_opt_ecd = qrake(Q, wh, xmat, targets, method='raking-ec', maxiter=50, drops=drops)
+Q_opt_ecd = qrake(Q, wh, xmat, targets, method='raking-ec', maxiter=50, drops=drops, objective=QUADRATIC)
 # Q_opt_ec2 = qrake(Q_opt_r, wh, xmat, targets, method='raking-ec')
 # 0.0064              0.07 %
 
-Q_opt = Q_opt_ec
 Q_opt = Q_opt_r
+Q_opt = Q_opt_rd
+Q_opt = Q_opt_ec
+Q_opt = Q_opt_ecd
 
 # check weights
 # whs_opt = np.dot(Q_opt.T, np.diag(wh)).T  # speed this up
