@@ -189,6 +189,9 @@ def get_mask(targets, drops):
             mask[row, cols] = False
     return mask
 
+# STOP_TRUE = (10 < 20) and (5 > 6)
+
+
 def qrake(Q, wh, xmat, targets,
           method='raking', maxiter=200, drops=None,
           objective: ec.Objective = ec.Objective.ENTROPY,):
@@ -213,6 +216,9 @@ def qrake(Q, wh, xmat, targets,
 
     """
 
+    # TODO:
+        # customize stopping rule based only on max target pct diff
+
     def print_problem():
         print(' Number of households:                {:8,}'.format(wh.size))
         print(' Number of areas:                     {:8,d}'.format(m))
@@ -233,7 +239,7 @@ def qrake(Q, wh, xmat, targets,
     # constants
     # EPS = 1e-5  # acceptable weightsum error (tolerance) - 1e-5 in R code
     TOL_WTDIFF = 0.0005  # tolerance for difference between weight sum and 1
-    TOL_TARGPCTDIFF = 0.1  # tolerance for targets percent difference
+    TOL_TARGPCTDIFF = 1.0  # tolerance for targets percent difference
 
     # initialize stopping criteria values
     ediff = 1  # error, called ver in Toky R code
@@ -267,6 +273,16 @@ def qrake(Q, wh, xmat, targets,
         # and a tuple of integers as 2nd value (indexes of bad columns)
     mask = get_mask(targets, drops)
 
+    def end_loop(iter, max_targ_abspctdiff):
+        iter_rule = (iter > maxiter)
+        target_rule = (max_targ_abspctdiff <= TOL_TARGPCTDIFF)
+        no_more = iter_rule or target_rule
+        return no_more
+
+    # ((max_weight_absdiff > TOL_WTDIFF) or \
+    #        (max_targ_abspctdiff > TOL_TARGPCTDIFF)) & \
+    #     (iter <= maxiter)
+
     # Making a copy of Q is crucial. We don't want to change the
     # original Q.
     Q = Q.copy()
@@ -283,9 +299,7 @@ def qrake(Q, wh, xmat, targets,
     print(h1)
     print(h2, '\n')
 
-    while ((max_weight_absdiff > TOL_WTDIFF) or \
-           (max_targ_abspctdiff > TOL_TARGPCTDIFF)) & \
-        (iter <= maxiter):
+    while not end_loop(iter, max_targ_abspctdiff):
 
         print(' '*3, end='')
         print('{:4d}'.format(iter), end='', flush=True)
@@ -1178,13 +1192,14 @@ np.round(np.quantile(gtpdiff, qtiles), 1)
 
 # define rows and columns of targets to drop, using lists (NOT tuples)
 targets.shape
+xmat.shape
 np.round(ipdiff, 2)
 np.max(np.abs(ipdiff), axis=0)
 np.max(np.abs(ipdiff), axis=1)
-ipdiff[48, ]
+ipdiff[24, ]
 tpdiff[45, ]
 np.quantile(np.abs(tpdiff[imask]), qtiles)
-
+targstates[0]
 ipdiff
 
 imask= get_mask(targets, drops)
@@ -1222,9 +1237,38 @@ drops = {30: (3, ),
          45: (5, 6),
          46: (1, 2, 3, 4, 5, 6)}
 
-drops = {48: (4, 5, 6),
-         49: (4, ),
+drops = {50: (1, 2, 3, 4, 5, 6)}
+
+drops = {0: (2,),
          50: (1, 2, 3, 4, 5, 6)}
+
+np.max(np.abs(ipdiff), axis=1)
+ipdiff[37, ]
+
+# drops stub 1, raking, 1000 iter
+drops = {0: (6,),
+         2: (5, 6),
+         7: (5,),
+         11: (5, 6),
+         16: (5,),
+         20: (3, 5, 6),
+         24: (6,),
+         29: (5,),
+         31: (6,),
+         37: (5,),
+         39: (5,),
+         40: (6,),
+         45: (5,),
+         48: (5, 6),
+         50: (1, 2, 3, 4, 5, 6)}
+
+
+# drops stub 10, entropy, 50 iter
+drops = {0: (4, 5, 6),
+         48: (5, 6),
+         49: (4, 5, 6),
+         50: (1, 2, 3, 4, 5, 6)}
+
 
 flist = targstates + ['XX']
 for k in drops.keys(): print(flist[k])
@@ -1235,13 +1279,13 @@ targvars[3]
 # figure out how to avoid copying matrices - just define good indexes?
 
 # solve for optimal Q method can be raking or raking-ec
-Q_opt_r = qrake(Q, wh, xmat, targets, method='raking', maxiter=10)
-Q_opt_rd = qrake(Q, wh, xmat, targets, method='raking', maxiter=200, drops=drops)
+Q_opt_r = qrake(Q, wh, xmat, targets, method='raking', maxiter=100)
+Q_opt_rd = qrake(Q, wh, xmat, targets, method='raking', maxiter=1000, drops=drops)
 
 # TODO: State-specific priority weights? UT in stub 1
-Q_opt_ec = qrake(Q, wh, xmat, targets, method='raking-ec', maxiter=50)
-Q_opt_ecd = qrake(Q, wh, xmat, targets, method='raking-ec', maxiter=50, drops=drops)
-Q_opt_ecd = qrake(Q, wh, xmat, targets, method='raking-ec', maxiter=50, drops=drops, objective=QUADRATIC)
+Q_opt_ec = qrake(Q, wh, xmat, targets, method='raking-ec', maxiter=20)
+Q_opt_ecd = qrake(Q, wh, xmat, targets, method='raking-ec', maxiter=100, drops=drops)  # GOOD
+Q_opt_ecd = qrake(Q, wh, xmat, targets, method='raking-ec', maxiter=20, drops=drops, objective=QUADRATIC)
 # Q_opt_ec2 = qrake(Q_opt_r, wh, xmat, targets, method='raking-ec')
 # 0.0064              0.07 %
 
@@ -1270,7 +1314,10 @@ np.round(tpdiff, 4)  # percent difference
 np.square(tpdiff).sum()
 # np.quantile(tpdiff, (.5))
 np.round(np.quantile(tpdiff, qtiles), 1)
-np.sort(tpdiff.flatten())
+# np.sort(tpdiff.flatten())
+
+imask= get_mask(targets, drops)
+np.round(np.quantile(tpdiff[imask], qtiles), 1)
 
 # see how the targets re if we remove problematic states
 alt = np.delete(tpdiff, (48, 49), axis=0)
@@ -1284,6 +1331,7 @@ bads = (32, 42, 49)
 flist = targstates + ['XX']
 flist
 [flist[i] for i in bads]
+
 
 # %% commented-out functions
 
