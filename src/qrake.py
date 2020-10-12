@@ -182,6 +182,12 @@ def gec(xmat, wh, targets,
 
     return g
 
+def get_mask(targets, drops):
+    mask= np.ones(targets.shape, dtype=bool) # start with all values true
+    if drops is not None:
+        for row, cols in drops.items():
+            mask[row, cols] = False
+    return mask
 
 def qrake(Q, wh, xmat, targets,
           method='raking', maxiter=200, drops=None,
@@ -253,6 +259,14 @@ def qrake(Q, wh, xmat, targets,
         nt_dropped = sum([len(x) for x in drops.values()])
     nt_used = nt_possible - nt_dropped
 
+    # create a mask for targets that defines good columns for each area
+    # create a mask-like array with shape of targets:
+        # where bad state-col combinations are False
+        # bad value indices will be a list of tuples
+        # each tuple as an integer as its first value (a state index)
+        # and a tuple of integers as 2nd value (indexes of bad columns)
+    mask = get_mask(targets, drops)
+
     # Making a copy of Q is crucial. We don't want to change the
     # original Q.
     Q = Q.copy()
@@ -279,18 +293,9 @@ def qrake(Q, wh, xmat, targets,
         for j in range(m):  # j indexes areas
 
             #  drop any bad targets
-            # try to avoid copies??
-            targs = targets[j, :].copy()
-            xmat_wh2 = xmat_wh.copy()
-            if drops is not None:
-                badtargs = drops.get(j)
-            else:
-                badtargs = None
-            if badtargs is not None:
-                targs = np.delete(targs, badtargs, 0)
-                xmat_wh2 = np.delete(xmat_wh2, badtargs, 1)
+            good_cols = mask[j, :]
 
-            g = gfn(xmat_wh2, Q[:, j], targs, objective=objective)
+            g = gfn(xmat_wh[:, good_cols], Q[:, j], targets[j, good_cols], objective=objective)
 
             if np.isnan(g).any() or np.isinf(g).any() or g.any() == 0:
                 g = np.ones(g.size)
@@ -319,8 +324,8 @@ def qrake(Q, wh, xmat, targets,
         whs = np.multiply(Q, wh.reshape((-1, 1)))  # faster
         diff = np.dot(whs.T, xmat) - targets
         abspctdiff = np.abs(diff / targets * 100)
-        max_targ_abspctdiff = abspctdiff.max()
-        ptile = np.quantile(abspctdiff, (.95))
+        max_targ_abspctdiff = abspctdiff[mask].max()
+        ptile = np.quantile(abspctdiff[mask], (.95))
         print(' '*6, end='')
         print(f'{max_targ_abspctdiff:8.2f} %', end='')
         print(' '*7, end='')
@@ -329,17 +334,36 @@ def qrake(Q, wh, xmat, targets,
         iter = iter + 1
         # end while loop
 
+    # post-processing
+    # calculate weight difference AFTER final calibration
+    abswtdiff = np.abs(Q.sum(axis=1) - 1)  # sum of weight-shares for each household
+    max_weight_absdiff = abswtdiff.max()  # largest sum across all households
+
+
+
     b = timer()
+
     if iter > maxiter:
         print('\nMaximum number of iterations exceeded.\n')
 
     print('\n')
     print_problem()
+    print(f'\nPost-calibration max abs diff between sum of household weights and 1, across households: {max_weight_absdiff:9.5f}')
+    print()
 
-    print('\nFinal values:')
-    print('  Max abs diff between sum of household weights and 1, across households: {:9.5f}'.format(max_weight_absdiff))
-    print('  Max abs percent diff, calc vs. desired targets:                         {:9.3f} %'.format(max_targ_abspctdiff))
-    print('  p95 of abs percent diff, calc vs. desired targets:                      {:9.3f} %'.format(ptile))
+    # compute and print masked and all values for various quantiles
+    p100a = abspctdiff.max()
+    p100m = abspctdiff[mask].max()
+    p99a = np.quantile(abspctdiff, (.99))
+    p99m = np.quantile(abspctdiff[mask], (.99))
+    p95a = np.quantile(abspctdiff, (.95))
+    p95m = np.quantile(abspctdiff[mask], (.95))
+    print('Results for calculated targets versus desired targets:')
+    print( '                                                            masked             all\n')
+    print(f'    Max abs percent difference                           {p100m:9.3f} %     {p100a:9.3f} %')
+    print(f'    p99 of abs percent difference                        {p99m:9.3f} %     {p99a:9.3f} %')
+    print(f'    p95 of abs percent difference                        {p95m:9.3f} %     {p95a:9.3f} %')
+
     print('\nElapsed time: {:8.1f} seconds'.format(b - a))
 
     return Q
@@ -855,11 +879,37 @@ g3q = gec(xmat3, iwh, t3, objective=QUADRATIC, increment=.001); g3q
 g3r = rake(xmat3, iwh, t3); g3r
 
 # diffs and percent diffs with different g's (and xmat where appropriate)
-np.dot(xmat.T, iwh * g0) - t2  # bad on the bad targes
+np.dot(xmat.T, iwh * g0) - t2  # bad on the bad targets
 np.dot(xmat.T, iwh * g0r) - t2  # no good
 np.dot(xmat.T, iwh * g2e) - t2  # no good
 np.dot(xmat.T, iwh * g2q) - t2  # better
 np.round((np.dot(xmat.T, iwh * g2q) - t2) / t2 * 100, 3)
+
+xmat.shape
+xmat[:, 0:2].shape
+np.dot(xmat.T, iwh * g0)
+
+# import numpy.ma as ma
+# look at masked arrays as possible alternative
+# https://numpy.org/doc/stable/reference/maskedarray.generic.html
+
+
+# create a mask-like array with shape of targets, where bad values are False
+# bad value indices will be a list of tuples
+# each tuple as an integer as its first value (a state index)
+# and a tuple of integers as 2nd value (indexes of bad columns)
+mask= np.ones(targets.shape, dtype=bool)
+bads = [(1, (1)), (3, (1, 2))]
+# mask[bads]  # we CANNOT do this
+for ij in bads: mask[ij] = False
+mask
+
+targets[mask]
+targets.sum()
+targets[mask].sum()
+
+
+# To create an array with the second element invalid, we would do:
 
 # drops on the kept targets
 np.dot(xmat3.T, iwh * g0) - t3
@@ -1127,6 +1177,28 @@ np.round(np.quantile(gtpdiff, qtiles), 1)
 # sum???
 
 # define rows and columns of targets to drop, using lists (NOT tuples)
+targets.shape
+np.round(ipdiff, 2)
+np.max(np.abs(ipdiff), axis=0)
+np.max(np.abs(ipdiff), axis=1)
+ipdiff[48, ]
+tpdiff[45, ]
+np.quantile(np.abs(tpdiff[imask]), qtiles)
+
+ipdiff
+
+imask= get_mask(targets, drops)
+
+# after runs, create adjusted target percent differences, with masked set to 0
+atpdiff = tpdiff.copy()
+atpdiff[~imask] = 0
+atpdiff.shape
+atpdiff
+np.max(np.abs(atpdiff), axis=0)
+np.max(np.abs(atpdiff), axis=1)
+atpdiff[30:32, ]
+tpdiff[46, ]
+
 drops = {0: [1, 2],
          1: [1, 3],
          3: [2, 4]}
@@ -1136,16 +1208,36 @@ drops = {3: [5],
          8: [5]}
 
 drops = {50: [3, 6]}
+drops = {50: (6, 6)}
+drops = [(6, (6))]
+drops = {6: (5, 6)}
+drops = {6: (6, )}  # MUST use comma in 1-element tuple so it is a tuple!
 
-# badtargs = drops.get(3)
+drops = {30: (3, ),
+         31: (3, ),
+         45: (5, 6),
+         46: (1, 2, 3, 4, 5, 6)}
+
+drops = {30: (3, ),
+         45: (5, 6),
+         46: (1, 2, 3, 4, 5, 6)}
+
+drops = {48: (4, 5, 6),
+         49: (4, ),
+         50: (1, 2, 3, 4, 5, 6)}
+
+flist = targstates + ['XX']
+for k in drops.keys(): print(flist[k])
+targvars[3]
+
 
 # TODO: Only count good targets in the max targets
 # figure out how to avoid copying matrices - just define good indexes?
 
 # solve for optimal Q method can be raking or raking-ec
-Q_opt_r = qrake(Q, wh, xmat, targets, method='raking', maxiter=50)
-Q_opt_rd = qrake(Q, wh, xmat, targets, method='raking', maxiter=50, drops=drops)
-#   0.0011              4.82 %
+Q_opt_r = qrake(Q, wh, xmat, targets, method='raking', maxiter=10)
+Q_opt_rd = qrake(Q, wh, xmat, targets, method='raking', maxiter=200, drops=drops)
+
 # TODO: State-specific priority weights? UT in stub 1
 Q_opt_ec = qrake(Q, wh, xmat, targets, method='raking-ec', maxiter=50)
 Q_opt_ecd = qrake(Q, wh, xmat, targets, method='raking-ec', maxiter=50, drops=drops)
@@ -1177,7 +1269,6 @@ tpdiff = tdiff / targets * 100
 np.round(tpdiff, 4)  # percent difference
 np.square(tpdiff).sum()
 # np.quantile(tpdiff, (.5))
-# qtiles = [0, .1, .25, .5, .75, .9, .95, .99, 1]
 np.round(np.quantile(tpdiff, qtiles), 1)
 np.sort(tpdiff.flatten())
 
