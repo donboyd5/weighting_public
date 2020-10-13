@@ -260,18 +260,21 @@ def qrake(Q, wh, xmat, targets,
     nt_per_area = targets.shape[1]
     nt_possible = nt_per_area * m
     if drops is None:
+        drops= np.zeros(targets.shape, dtype=bool)  # all False
         nt_dropped = 0
     else:
-        nt_dropped = sum([len(x) for x in drops.values()])
+        # nt_dropped = sum([len(x) for x in drops.values()])
+        nt_dropped = drops.sum()
     nt_used = nt_possible - nt_dropped
+    good_targets = np.logical_not(drops)
 
-    # create a mask for targets that defines good columns for each area
+    # OLD create a mask for targets that defines good columns for each area
     # create a mask-like array with shape of targets:
         # where bad state-col combinations are False
         # bad value indices will be a list of tuples
         # each tuple as an integer as its first value (a state index)
         # and a tuple of integers as 2nd value (indexes of bad columns)
-    mask = get_mask(targets, drops)
+    # mask = get_mask(targets, drops)
 
     def end_loop(iter, max_targ_abspctdiff):
         iter_rule = (iter > maxiter)
@@ -307,7 +310,7 @@ def qrake(Q, wh, xmat, targets,
         for j in range(m):  # j indexes areas
 
             #  drop any bad targets
-            good_cols = mask[j, :]
+            good_cols = good_targets[j, :]  # drops[j, :]
 
             g = gfn(xmat_wh[:, good_cols], Q[:, j], targets[j, good_cols], objective=objective)
 
@@ -338,8 +341,8 @@ def qrake(Q, wh, xmat, targets,
         whs = np.multiply(Q, wh.reshape((-1, 1)))  # faster
         diff = np.dot(whs.T, xmat) - targets
         abspctdiff = np.abs(diff / targets * 100)
-        max_targ_abspctdiff = abspctdiff[mask].max()
-        ptile = np.quantile(abspctdiff[mask], (.95))
+        max_targ_abspctdiff = abspctdiff[good_targets].max()
+        ptile = np.quantile(abspctdiff[good_targets], (.95))
         print(' '*6, end='')
         print(f'{max_targ_abspctdiff:8.2f} %', end='')
         print(' '*7, end='')
@@ -367,13 +370,13 @@ def qrake(Q, wh, xmat, targets,
 
     # compute and print masked and all values for various quantiles
     p100a = abspctdiff.max()
-    p100m = abspctdiff[mask].max()
+    p100m = abspctdiff[good_targets].max()
     p99a = np.quantile(abspctdiff, (.99))
-    p99m = np.quantile(abspctdiff[mask], (.99))
+    p99m = np.quantile(abspctdiff[good_targets], (.99))
     p95a = np.quantile(abspctdiff, (.95))
-    p95m = np.quantile(abspctdiff[mask], (.95))
+    p95m = np.quantile(abspctdiff[good_targets], (.95))
     print('Results for calculated targets versus desired targets:')
-    print( '                                                            masked             all\n')
+    print( '                                                              good             all\n')
     print(f'    Max abs percent difference                           {p100m:9.3f} %     {p100a:9.3f} %')
     print(f'    p99 of abs percent difference                        {p99m:9.3f} %     {p99a:9.3f} %')
     print(f'    p95 of abs percent difference                        {p95m:9.3f} %     {p95a:9.3f} %')
@@ -1163,6 +1166,23 @@ np.round(gtpdiff, 4)  # percent difference
 np.square(gtpdiff).sum()
 np.round(np.quantile(gtpdiff, qtiles), 1)
 
+# %% mask dict info
+
+# assume drops is a dict like this rather than a matrix
+#  key is state index, value is tuple of indexes for bad columns
+# drops = {30: (3, ),
+#          31: (3, ),
+#          45: (5, 6),
+#          46: (1, 2, 3, 4, 5, 6)}
+
+    # create a mask for targets that defines good columns for each area
+    # create a mask-like array with shape of targets:
+        # where bad state-col combinations are False
+        # bad value indices will be a list of tuples
+        # each tuple as an integer as its first value (a state index)
+        # and a tuple of integers as 2nd value (indexes of bad columns)
+#  mask = get_mask(targets, drops)  # see the function
+
 
 # %% solve the problem using qmatrix
 # stubs 1 and 10 are still a problem; 10 has an error to be fixed;
@@ -1274,6 +1294,13 @@ flist = targstates + ['XX']
 for k in drops.keys(): print(flist[k])
 targvars[3]
 
+# djb here is the new way of masking and not masking
+np.abs(ipdiff).max()
+drops = np.where(np.abs(ipdiff) > 80, True, False)  # True means we drop
+drops.sum()
+
+drops[2, :]
+np.logical_not(drops[2, :])
 
 # TODO: Only count good targets in the max targets
 # figure out how to avoid copying matrices - just define good indexes?
