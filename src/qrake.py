@@ -182,12 +182,12 @@ def gec(xmat, wh, targets,
 
     return g
 
-def get_mask(targets, drops):
-    mask= np.ones(targets.shape, dtype=bool) # start with all values true
-    if drops is not None:
-        for row, cols in drops.items():
-            mask[row, cols] = False
-    return mask
+def get_drops(targets, drop_dict):
+    drops = np.zeros(targets.shape, dtype=bool) # start with all values False
+    if drop_dict is not None:
+        for row, cols in drop_dict.items():
+            drops[row, cols] = True
+    return drops
 
 # STOP_TRUE = (10 < 20) and (5 > 6)
 
@@ -1166,7 +1166,7 @@ np.round(gtpdiff, 4)  # percent difference
 np.square(gtpdiff).sum()
 np.round(np.quantile(gtpdiff, qtiles), 1)
 
-# %% mask dict info
+# %% drops dict info
 
 # assume drops is a dict like this rather than a matrix
 #  key is state index, value is tuple of indexes for bad columns
@@ -1175,13 +1175,86 @@ np.round(np.quantile(gtpdiff, qtiles), 1)
 #          45: (5, 6),
 #          46: (1, 2, 3, 4, 5, 6)}
 
+
+# define rows and columns of targets to drop, using lists (NOT tuples)
+targets.shape
+xmat.shape
+np.round(ipdiff, 2)
+np.max(np.abs(ipdiff), axis=0)
+np.max(np.abs(ipdiff), axis=1)
+ipdiff[24, ]
+tpdiff[45, ]
+np.quantile(np.abs(tpdiff[imask]), qtiles)
+targstates[0]
+ipdiff
+
+drops= get_drops(targets, ddrops)
+
+ddrops = {0: [1, 2],
+         1: [1, 3],
+         3: [2, 4]}
+
+ddrops = {3: [5],
+         7: [6],
+         8: [5]}
+
+ddrops = {50: [3, 6]}
+ddrops = {50: (6, 6)}
+ddrops = [(6, (6))]
+ddrops = {6: (5, 6)}
+ddrops = {6: (6, )}  # MUST use comma in 1-element tuple so it is a tuple!
+
+ddrops = {30: (3, ),
+         31: (3, ),
+         45: (5, 6),
+         46: (1, 2, 3, 4, 5, 6)}
+
+ddrops = {30: (3, ),
+         45: (5, 6),
+         46: (1, 2, 3, 4, 5, 6)}
+
+ddrops = {50: (1, 2, 3, 4, 5, 6)}
+
+ddrops = {0: (2,),
+         50: (1, 2, 3, 4, 5, 6)}
+
+np.max(np.abs(ipdiff), axis=1)
+ipdiff[37, ]
+
+# drops stub 1, raking, 1000 iter
+ddrops = {0: (6,),
+         2: (5, 6),
+         7: (5,),
+         11: (5, 6),
+         16: (5,),
+         20: (3, 5, 6),
+         24: (6,),
+         29: (5,),
+         31: (6,),
+         37: (5,),
+         39: (5,),
+         40: (6,),
+         45: (5,),
+         48: (5, 6),
+         50: (1, 2, 3, 4, 5, 6)}
+
+
+# drops stub 10, entropy, 50 iter
+ddrops10 = {0: (4, 5, 6),
+         48: (5, 6),
+         49: (4, 5, 6),
+         50: (1, 2, 3, 4, 5, 6)}
+
+
     # create a mask for targets that defines good columns for each area
     # create a mask-like array with shape of targets:
         # where bad state-col combinations are False
         # bad value indices will be a list of tuples
         # each tuple as an integer as its first value (a state index)
         # and a tuple of integers as 2nd value (indexes of bad columns)
-#  mask = get_mask(targets, drops)  # see the function
+
+ddrops = ddrops10  # for stub 10
+drops = get_drops(targets, ddrops)  # see the function
 
 
 # %% solve the problem using qmatrix
@@ -1210,84 +1283,7 @@ np.round(np.quantile(gtpdiff, qtiles), 1)
 # what if we dropped OA from HT2 and calc'd each state as share of the remaining
 # sum???
 
-# define rows and columns of targets to drop, using lists (NOT tuples)
 targets.shape
-xmat.shape
-np.round(ipdiff, 2)
-np.max(np.abs(ipdiff), axis=0)
-np.max(np.abs(ipdiff), axis=1)
-ipdiff[24, ]
-tpdiff[45, ]
-np.quantile(np.abs(tpdiff[imask]), qtiles)
-targstates[0]
-ipdiff
-
-imask= get_mask(targets, drops)
-
-# after runs, create adjusted target percent differences, with masked set to 0
-atpdiff = tpdiff.copy()
-atpdiff[~imask] = 0
-atpdiff.shape
-atpdiff
-np.max(np.abs(atpdiff), axis=0)
-np.max(np.abs(atpdiff), axis=1)
-atpdiff[30:32, ]
-tpdiff[46, ]
-
-drops = {0: [1, 2],
-         1: [1, 3],
-         3: [2, 4]}
-
-drops = {3: [5],
-         7: [6],
-         8: [5]}
-
-drops = {50: [3, 6]}
-drops = {50: (6, 6)}
-drops = [(6, (6))]
-drops = {6: (5, 6)}
-drops = {6: (6, )}  # MUST use comma in 1-element tuple so it is a tuple!
-
-drops = {30: (3, ),
-         31: (3, ),
-         45: (5, 6),
-         46: (1, 2, 3, 4, 5, 6)}
-
-drops = {30: (3, ),
-         45: (5, 6),
-         46: (1, 2, 3, 4, 5, 6)}
-
-drops = {50: (1, 2, 3, 4, 5, 6)}
-
-drops = {0: (2,),
-         50: (1, 2, 3, 4, 5, 6)}
-
-np.max(np.abs(ipdiff), axis=1)
-ipdiff[37, ]
-
-# drops stub 1, raking, 1000 iter
-drops = {0: (6,),
-         2: (5, 6),
-         7: (5,),
-         11: (5, 6),
-         16: (5,),
-         20: (3, 5, 6),
-         24: (6,),
-         29: (5,),
-         31: (6,),
-         37: (5,),
-         39: (5,),
-         40: (6,),
-         45: (5,),
-         48: (5, 6),
-         50: (1, 2, 3, 4, 5, 6)}
-
-
-# drops stub 10, entropy, 50 iter
-drops = {0: (4, 5, 6),
-         48: (5, 6),
-         49: (4, 5, 6),
-         50: (1, 2, 3, 4, 5, 6)}
 
 
 flist = targstates + ['XX']
@@ -1296,21 +1292,38 @@ targvars[3]
 
 # djb here is the new way of masking and not masking
 np.abs(ipdiff).max()
+np.max(np.abs(ipdiff), axis=0)
+np.max(np.abs(ipdiff), axis=1)
+ipdiff[24, ]
+
+
+# stub 1 drops
+drops = np.where(np.abs(ipdiff) > 100, True, False)  # True means we drop
+
+# stub 10 drops
 drops = np.where(np.abs(ipdiff) > 80, True, False)  # True means we drop
+# create complex secondary where conditions for stub 10
+# condition = np.logical_not(comp3['variable'].isin(['nret_all', 'nret_mfjss', 'nret_single']))
+i_oa = (targets.shape[0] - 1, range(1, targets.shape[1]))  # index of other areas, except first
+ipdiff[i_oa]
+drops[i_oa] = True
+i_single = (range(0, targets.shape[0]), 1)
+drops[i_single]
+drops[i_single] = True
+drops
+# For stub 10 we seem to need to drop it to 80, drop most of OA, and use entropy
+# or else use ddrops
+
+
 drops.sum()
 
-drops[2, :]
-np.logical_not(drops[2, :])
-
-# TODO: Only count good targets in the max targets
-# figure out how to avoid copying matrices - just define good indexes?
+# TODO: keep best_Q based on best_absdiff
 
 # solve for optimal Q method can be raking or raking-ec
 Q_opt_r = qrake(Q, wh, xmat, targets, method='raking', maxiter=100)
-Q_opt_rd = qrake(Q, wh, xmat, targets, method='raking', maxiter=1000, drops=drops)
+Q_opt_rd = qrake(Q, wh, xmat, targets, method='raking', maxiter=200, drops=drops)
 
-# TODO: State-specific priority weights? UT in stub 1
-Q_opt_ec = qrake(Q, wh, xmat, targets, method='raking-ec', maxiter=20)
+Q_opt_ec = qrake(Q, wh, xmat, targets, method='raking-ec', maxiter=50)
 Q_opt_ecd = qrake(Q, wh, xmat, targets, method='raking-ec', maxiter=100, drops=drops)  # GOOD
 Q_opt_ecd = qrake(Q, wh, xmat, targets, method='raking-ec', maxiter=20, drops=drops, objective=QUADRATIC)
 # Q_opt_ec2 = qrake(Q_opt_r, wh, xmat, targets, method='raking-ec')
