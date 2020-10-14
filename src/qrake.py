@@ -776,17 +776,45 @@ np.quantile(g3, qtiles)
 # opt array([-9.0700e+01, -2.5500e+01, -2.0000e-01,  0.0000e+00,  1.0000e-01,
 #             1.1300e+01,  1.6734e+03])
 
-
+n = xmat.shape[0]
+m = targets.shape[0]
 
 # treat first column of targets as if it is the population of each state
 # we we can get each state's share of pop from this, and use that to start Q
-shares = targets[:, 0] / targets[:, 0].sum()
-# shares.sum()
-n = xmat.shape[0]
-m = targets.shape[0]
-Q = np.tile(shares, n).reshape((n, m))
+# shares = targets[:, 0] / targets[:, 0].sum()  # each state's share of total
+# # shares.sum()
 
-# Q⊺ diag(w1, . . . ,wk, . . . ,wn)XS = tAx
+# Q = np.tile(shares, n).reshape((n, m))
+# Q.shape
+# Q.sum(axis=1)
+
+# create a better starting Q that bases shares on whether a person
+# is single, MFJ, other
+targvars  # 0, 1, 2 are total, single, mfj
+targets[:, 0:3] / targets[:, 0:3].sum(axis=0)  # each state's share of return type
+xmat[0:10, 0:4]
+xmat[:, 0:3].sum(axis=0)  # sums of returns by
+
+targ_mstat = np.ndarray((m, 3))
+targ_mstat[:, 1:3] = targets[:, 1:3]
+targ_mstat[:, 0] = targets[:, 0] - targets[:, 1:3].sum(axis=1)  # create other
+targ_mstat.sum(axis=0)
+# each state's share of total by marital status other, single, mfj
+shares_mstat = targ_mstat[:, 0:3] / targ_mstat[:, 0:3].sum(axis=0)
+shares_mstat.sum(axis=0)  # check
+
+xmat_mstat = np.ndarray((n, 3))
+xmat_mstat[:, 1:3] = xmat[:, 1:3]
+xmat_mstat[:, 0] = xmat[:, 0] - xmat[:, 1:3].sum(axis=1)  # create other
+
+# we need Q_mstat (n, m)
+Q_mstat = np.dot(xmat_mstat, shares_mstat.T)
+Q_mstat.shape
+Q_mstat.sum(axis=1)
+wh
+
+Q = Q_mstat.copy()
+
 # check initial state weights
 # iwhs = np.dot(Q.T, np.diag(wh)).T  # try to speed this up
 iwhs = np.multiply(Q, wh.reshape((-1, 1)))  # much faster
@@ -966,7 +994,7 @@ ipdiff[24, ]
 drops = np.where(np.abs(ipdiff) > 100, True, False)  # True means we drop
 
 # stub 10 drops
-drops = np.where(np.abs(ipdiff) > 100, True, False)  # True means we drop
+drops = np.where(np.abs(ipdiff) > 80, True, False)  # True means we drop
 # create complex secondary where conditions for stub 10
 # condition = np.logical_not(comp3['variable'].isin(['nret_all', 'nret_mfjss', 'nret_single']))
 i_oa = (targets.shape[0] - 1, range(1, targets.shape[1]))  # index of other areas, except first
@@ -980,7 +1008,6 @@ drops
 # or else use ddrops
 # stub 10 can be solved without drops using raking-ec default
 
-
 drops.sum()
 
 # solve for optimal Q method can be raking or raking-ec
@@ -992,9 +1019,15 @@ res_ecd = qrake(Q, wh, xmat, targets, method='raking-ec', maxiter=100, drops=dro
 res_ecd = qrake(Q, wh, xmat, targets, method='raking-ec', maxiter=20, drops=drops, objective=QUADRATIC)
 res_ec2 = qrake(Q_opt_r, wh, xmat, targets, method='raking-ec')
 
+# 250
+    # Max abs percent difference                               5.937 %       173.884 %
+    # p99 of abs percent difference                            4.356 %       150.028 %
+    # p95 of abs percent difference                            1.099 %        39.383 %
+
 res = res_r
 res = res_rd
 res = res_ecd
+
 
 list(res)
 res['esecs']

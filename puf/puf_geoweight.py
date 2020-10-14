@@ -872,7 +872,7 @@ targstates = [x for x in STATES if x not in badstates]
 pufsub.columns
 pufsub[['HT2_STUB', 'pid']].groupby(['HT2_STUB']).agg(['count'])
 
-stub = 4
+stub = 10
 pufstub = pufsub.query('HT2_STUB == @stub')[['pid', 'HT2_STUB', 'wtnew'] + targvars]
 pufstub
 
