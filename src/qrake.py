@@ -149,7 +149,11 @@ STLIST = ['AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DC', 'DE', 'FL', 'GA',
 
 qtiles = [0, .01, .1, .25, .5, .75, .9, .99, 1]
 
-# %% functions
+# %% classes and functions
+
+class Result:
+    pass
+
 def gec(xmat, wh, targets,
         target_weights: np.ndarray = None,
         objective: ec.Objective = ec.Objective.ENTROPY,
@@ -244,13 +248,16 @@ def qrake(Q, wh, xmat, targets,
     # initialize stopping criteria values
     ediff = 1  # error, called ver in Toky R code
     iter = 1  # initialize iteration count called k in Toky R. R code
+    iter_best = iter
 
     # difference in weights - Toky R. used sum of absolute weight differences,
     # I use largest absolute weight difference
     max_weight_absdiff = 1e9  # initial maximum % difference between sums of weights for a household and 100
     max_targ_abspctdiff = 1e9  # initial maximum % difference vs targets
+    max_diff_best = max_targ_abspctdiff
 
     m = targets.shape[0]  # number of states
+    n = wh.size  # number of households
     wh = wh.reshape((-1, 1))  # ensure the proper shape
 
     # compute xmat_wh before loop to(calib calculates it in the loop)
@@ -268,33 +275,19 @@ def qrake(Q, wh, xmat, targets,
     nt_used = nt_possible - nt_dropped
     good_targets = np.logical_not(drops)
 
-    # OLD create a mask for targets that defines good columns for each area
-    # create a mask-like array with shape of targets:
-        # where bad state-col combinations are False
-        # bad value indices will be a list of tuples
-        # each tuple as an integer as its first value (a state index)
-        # and a tuple of integers as 2nd value (indexes of bad columns)
-    # mask = get_mask(targets, drops)
-
     def end_loop(iter, max_targ_abspctdiff):
         iter_rule = (iter > maxiter)
         target_rule = (max_targ_abspctdiff <= TOL_TARGPCTDIFF)
         no_more = iter_rule or target_rule
         return no_more
 
-    # ((max_weight_absdiff > TOL_WTDIFF) or \
-    #        (max_targ_abspctdiff > TOL_TARGPCTDIFF)) & \
-    #     (iter <= maxiter)
-
     # Making a copy of Q is crucial. We don't want to change the
     # original Q.
     Q = Q.copy()
+    Q_best = Q.copy()
 
     print('')
     print_problem()
-    # print(' Number of areas:            {:8,d}'.format(m))
-    # print(' Number targets per area:    {:8,d}'.format(targets.shape[1]))
-    # print(' Number households:          {:8,}'.format(wh.size))
 
     h1 = "                  max weight      max target       p95 target"
     h2 = "   iteration        diff           pct diff         pct diff"
@@ -309,10 +302,15 @@ def qrake(Q, wh, xmat, targets,
 
         for j in range(m):  # j indexes areas
 
-            #  drop any bad targets
-            good_cols = good_targets[j, :]  # drops[j, :]
+            good_cols = good_targets[j, :]
 
             g = gfn(xmat_wh[:, good_cols], Q[:, j], targets[j, good_cols], objective=objective)
+            # print(type(g))
+            # if method == 'raking' and g is None:
+            #     # try to recover by using the alternate method
+            #     g = gec(xmat_wh[:, good_cols], Q[:, j], targets[j, good_cols])
+            if g is None:
+                g = np.ones(n)
 
             if np.isnan(g).any() or np.isinf(g).any() or g.any() == 0:
                 g = np.ones(g.size)
@@ -342,33 +340,41 @@ def qrake(Q, wh, xmat, targets,
         diff = np.dot(whs.T, xmat) - targets
         abspctdiff = np.abs(diff / targets * 100)
         max_targ_abspctdiff = abspctdiff[good_targets].max()
+
         ptile = np.quantile(abspctdiff[good_targets], (.95))
         print(' '*6, end='')
         print(f'{max_targ_abspctdiff:8.2f} %', end='')
         print(' '*7, end='')
         print(f'{ptile:8.2f} %')
 
+        # final processing before next iteration
+        if max_targ_abspctdiff < max_diff_best:
+            Q_best = Q.copy()
+            max_diff_best = max_targ_abspctdiff.copy()
+            iter_best = iter
         iter = iter + 1
         # end while loop
 
-    # post-processing
+    # post-processing after exiting while loop, using Q_best, not Q
+    whs_opt = np.multiply(Q_best, wh.reshape((-1, 1)))  # faster
+    targets_opt = np.dot(whs_opt.T, xmat)
+    diff = targets_opt - targets
+    pctdiff = diff / targets * 100
+    abspctdiff = np.abs(pctdiff)
     # calculate weight difference AFTER final calibration
-    abswtdiff = np.abs(Q.sum(axis=1) - 1)  # sum of weight-shares for each household
+    abswtdiff = np.abs(Q_best.sum(axis=1) - 1)  # sum of weight-shares for each household
     max_weight_absdiff = abswtdiff.max()  # largest sum across all households
-
-
-
-    b = timer()
 
     if iter > maxiter:
         print('\nMaximum number of iterations exceeded.\n')
 
     print('\n')
     print_problem()
+
     print(f'\nPost-calibration max abs diff between sum of household weights and 1, across households: {max_weight_absdiff:9.5f}')
     print()
 
-    # compute and print masked and all values for various quantiles
+    # compute and print good and all values for various quantiles
     p100a = abspctdiff.max()
     p100m = abspctdiff[good_targets].max()
     p99a = np.quantile(abspctdiff, (.99))
@@ -380,267 +386,22 @@ def qrake(Q, wh, xmat, targets,
     print(f'    Max abs percent difference                           {p100m:9.3f} %     {p100a:9.3f} %')
     print(f'    p99 of abs percent difference                        {p99m:9.3f} %     {p99a:9.3f} %')
     print(f'    p95 of abs percent difference                        {p95m:9.3f} %     {p95a:9.3f} %')
-
-    print('\nElapsed time: {:8.1f} seconds'.format(b - a))
-
-    return Q
-
-
-def gec2(xmat, wh, targets,):
-    pop = wh.sum()
-    tmeans = targets / pop
-
-    # ompw:  optimal means-producing weights
-    ompw, l2_norm = ec.maybe_exact_calibrate(
-        covariates=xmat,
-        target_covariates=tmeans.reshape((1, -1)),
-        baseline_weights=wh,
-        # target_weights=np.array([[.25, .75]]), # target priorities
-        autoscale=True,  # doesn't always seem to work well
-        # note that QUADRATIC weights often can be zero
-        objective=ec.Objective.ENTROPY  # ENTROPY or QUADRATIC
-    )
-    # print(l2_norm)
-
-    # wh, when multiplied by g, will yield the targets
-    g = ompw * pop / wh
-    g = np.array(g, dtype=float).reshape((-1, ))  # djb
-
-    return g
-
-
-def qrake_bak20201011(Q, wh, xmat, targets, method='raking', maxiter=200):
-    """
-
-    Parameters
-    ----------
-    Q : 2d array
-        DESCRIPTION.
-    w : 1d array
-        DESCRIPTION.
-    xmat : TYPE
-        DESCRIPTION.
-        Note: this was Xs in the R code.
-    targets : TYPE
-        Note that this was TTT in the R code provided by Toky Randrianasolo.
-
-    Returns
-    -------
-    Q : TYPE
-        DESCRIPTION.
-
-    """
-
-    def print_problem():
-        print(' Number of areas:             {:8,d}'.format(m))
-        print(' Number of targets per area:  {:8,d}'.format(targets.shape[1]))
-        print(' Number of households:        {:8,}'.format(wh.size))
-
-    a = timer()
-
-    if method == 'raking':
-        gfn = rake
-    elif method == 'raking-ec':
-        gfn = gec
-
-    # constants
-    # EPS = 1e-5  # acceptable weightsum error (tolerance) - 1e-5 in R code
-    TOL_WTDIFF = 0.0005  # tolerance for difference between weight sum and 1
-    TOL_TARGPCTDIFF = 0.1  # tolerance for targets percent difference
-
-    # initialize stopping criteria values
-    ediff = 1  # error, called ver in Toky R code
-    iter = 1  # initialize iteration count called k in Toky R. R code
-
-    # difference in weights - Toky R. used sum of absolute weight differences,
-    # I use largest absolute weight difference
-    max_weight_absdiff = 1e9  # initial maximum % difference between sums of weights for a household and 100
-    max_targ_abspctdiff = 1e9  # initial maximum % difference vs targets
-
-    m = targets.shape[0]  # number of states
-    wh = wh.reshape((-1, 1))  # ensure the proper shape
-
-    # compute xmat_wh before loop to(calib calculates it in the loop)
-    xmat_wh = xmat * wh  # shape -  n x number of targets
-
-    # Making a copy of Q is crucial. We don't want to change the
-    # original Q.
-    Q = Q.copy()
-
-    print('')
-    print_problem()
-    # print(' Number of areas:            {:8,d}'.format(m))
-    # print(' Number targets per area:    {:8,d}'.format(targets.shape[1]))
-    # print(' Number households:          {:8,}'.format(wh.size))
-
-    h1 = "                  max weight      max target       p95 target"
-    h2 = "   iteration        diff           pct diff         pct diff"
-    print('\n')
-    print(h1)
-    print(h2, '\n')
-
-    while ((max_weight_absdiff > TOL_WTDIFF) or \
-           (max_targ_abspctdiff > TOL_TARGPCTDIFF)) & \
-        (iter <= maxiter):
-
-        print(' '*3, end='')
-        print('{:4d}'.format(iter), end='', flush=True)
-
-        for j in range(m):  # j indexes areas
-            g = gfn(xmat_wh, Q[:, j], targets[j, :])
-            if np.isnan(g).any() or np.isinf(g).any() or g.any() == 0:
-                g = np.ones(g.size)
-                # we'll need to do this one again
-            else:
-                pass
-                # print("done with this area")
-            Q[:, j] = Q[:, j] * g.reshape(g.size, )  # end for loop
-
-        # we have completed all areas for this iteration
-        # calc max weight difference BEFORE recalibrating Q
-        abswtdiff = np.abs(Q.sum(axis=1) - 1)  # sum of weight-shares for each household
-        max_weight_absdiff = abswtdiff.max()  # largest sum across all households
-        print(' '*11, end='')
-        print(f'{max_weight_absdiff:8.4f}', end='')
-        if np.isinf(abswtdiff).any():
-            # these weight shares are not good, do another iteration
-            # ediff = EPS
-            max_weight_absdiff = TOL_WTDIFF
-            print("Existence of infinite coefficients --> non-convergence.")
-
-        #print("Weight sums max percent difference: {}".format(maxadiff))  # ediff
-        Q = Q / Q.sum(axis=1)[:, None]  # Recalibrate Q. Note None so that we have proper broadcasting
-
-        # calculate targets pct diff AFTER recalibrating Q
-        whs = np.multiply(Q, wh.reshape((-1, 1)))  # faster
-        diff = np.dot(whs.T, xmat) - targets
-        abspctdiff = np.abs(diff / targets * 100)
-        max_targ_abspctdiff = abspctdiff.max()
-        ptile = np.quantile(abspctdiff, (.95))
-        print(' '*6, end='')
-        print(f'{max_targ_abspctdiff:8.2f} %', end='')
-        print(' '*7, end='')
-        print(f'{ptile:8.2f} %')
-
-        iter = iter + 1
-        # end while loop
+    print(f'\nNumber of iterations:                       {iter - 1:5d}')
+    print(f'Best target difference found at iteration:  {iter_best:5d}')
 
     b = timer()
-    if iter > maxiter:
-        print('\nMaximum number of iterations exceeded.\n')
-
-    print('\n')
-    print_problem()
-
-    print('\nFinal values:')
-    print('  Max abs diff between sum of household weights and 1, across households: {:9.5f}'.format(max_weight_absdiff))
-    print('  Max abs percent diff, calc vs. desired targets:                         {:9.3f} %'.format(max_targ_abspctdiff))
-    print('  p95 of abs percent diff, calc vs. desired targets:                      {:9.3f} %'.format(ptile))
     print('\nElapsed time: {:8.1f} seconds'.format(b - a))
 
-    return Q
+    # create a dict of items to return
+    res = {}
+    res['esecs'] = b - a
+    res['Q_opt'] = Q_best
+    res['whs_opt'] = whs_opt
+    res['targets_opt'] = targets_opt
+    res['pctdiff'] = pctdiff
+    res['iter_opt'] = iter_best
 
-
-def qrakeec(Q, wh, xmat, targets):
-    """
-
-    Parameters
-    ----------
-    Q : 2d array
-        DESCRIPTION.
-    w : 1d array
-        DESCRIPTION.
-    xmat : TYPE
-        DESCRIPTION.
-        Note: this was Xs in the R code.
-    targets : TYPE
-        Note that this was TTT in the R code provided by Toky Randrianasolo.
-
-    Returns
-    -------
-    Q : TYPE
-        DESCRIPTION.
-
-    """
-
-    EPS = 1e-5  # acceptable error (tolerance) - 1e-5 in R code
-    MAX_ITER = 10
-    # ediff is error in sum of weight shares across states, compare to epsilon
-    ediff = 1  # called ver in Toky R code
-    iter = 1  # initialize iteration count called k in Toky R. R code
-    m = targets.shape[0]  # number of states
-    wh = wh.reshape((-1, 1))  # ensure the proper shape
-    # compute before the loop to save a little time (calib calcs in the loop)
-    xmat_wh = xmat * wh  # shape -  n x number of targets
-    # i = 0
-
-    # Making a copy of Q is crucial. We don't want to change the
-    # original Q.
-    Q = Q.copy()
-
-    while (ediff > EPS) & (iter <= MAX_ITER):
-        print("Iteration: ", iter)
-        for j in range(m):  # j indexes areas
-            # print("Area: {:d} of {:d}:{:d}".
-            #       format(j, 0, m - 1), end='')
-            # g = rake(xmat_wh, Q[:, j], targets[j, :])
-            g = gec(xmat_wh, Q[:, j], targets[j, :])
-            g = np.array(g, dtype=float)  # djb temp fix
-            if np.isnan(g).any() or np.isinf(g).any() or g.any() == 0:
-                g = np.ones(g.size)
-                print("not done")  # we'll need to do this one again
-            else:
-                # print("done")
-                Q[:, j] = Q[:, j] * g.reshape(g.size, )
-                absdiff = np.abs(Q.sum(axis=1) - 1).sum()
-                # print(", Q sums of row diffs (vs 1): {:.4f}".format(absdiff))
-            # end for loop
-
-        # diff to be compared to epsilon
-        absdiff = np.abs(Q.sum(axis=1) - 1)
-        ediff = absdiff.sum()
-        if np.isinf(absdiff).any():
-            ediff = EPS
-            print("Existence of infinite coefficients --> non-convergence.")
-
-        print("Stop condition: {}".format(ediff))
-        Q = Q / Q.sum(axis=1)[:, None]  # so that we have proper broadcasting
-        iter = iter + 1
-        if iter > MAX_ITER:
-            print("Maximal number of iterations: non convergence .")
-        # end while loop
-
-    return Q
-
-def ecrake(xmat, wh, targets):
-    natsums = np.dot(xmat.T, wh)
-    pop = wh.sum()
-    natmeans = natsums / pop
-
-    # "mean-producing" weights
-    mpw = wh / pop
-    stpop = pop * targets[0] / natsums[0]
-    tmeans = targets / stpop
-
-    # initial mean-producing and sum-producing weights
-    impw = mpw
-    ispw = mpw * stpop
-
-    # solve for optimal mean-producing weights
-    ompw, l2_norm = ec.maybe_exact_calibrate(
-        covariates=xmat, # 1 row per person
-        target_covariates=tmeans.reshape((1, -1)),   # tmeans
-        baseline_weights=impw,
-        # make some targets more important than others
-        # target_weights=np.array([[1, 1, 1, 1, 1, 1]]),
-        # autoscale=True,  # does not seem to work well
-        objective=ec.Objective.ENTROPY
-        )
-
-    # expermimental djb
-    g = (ompw * wh.size).reshape((-1, 1))
-
-    return g
+    return res
 
 
 def rake(Xs, d, total, q=1, objective=None):
@@ -673,14 +434,14 @@ def rake(Xs, d, total, q=1, objective=None):
         lam = lam - np.dot(np.linalg.pinv(phiprim, rcond = 1e-15), phi) # k x 1
         w1 = d * np.exp(np.dot(Xs, lam) * q)  # h(n) x 1; in R this is a vector??
         if np.isnan(w1).any() or np.isinf(w1).any():
-            warnings.warn("No convergence")
+            warnings.warn("No convergence bad w1")
             g = None
             break
         tr = np.inner(Xs.T, w1.T) # k x 1
         if np.max(np.abs(tr - total) / total) < EPS1:
             break
         if i==max_iter:
-            warnings.warn("No convergence")
+            warnings.warn("No convergence after max iterations")
             g = None
         else:
             g = w1 / d  # djb: what if d has zeros?
@@ -692,102 +453,6 @@ def rake(Xs, d, total, q=1, objective=None):
         # end of the for loop
 
     return g
-
-
-def qrake_bak(Q, wh, xmat, targets):
-    """
-
-    Parameters
-    ----------
-    Q : 2d array
-        DESCRIPTION.
-    w : 1d array
-        DESCRIPTION.
-    xmat : TYPE
-        DESCRIPTION.
-        Note: this was Xs in the R code.
-    targets : TYPE
-        Note that this was TTT in the R code provided by Toky Randrianasolo.
-
-    Returns
-    -------
-    Q : TYPE
-        DESCRIPTION.
-
-    """
-
-    EPS = 1e-5  # acceptable error (tolerance) - 1e-5 in R code
-    MAX_ITER = 200
-    MAX_ABSDIFF = .1  # weights, percnt
-    MAX_PDIFF = 1  # targets, percent
-    MAX_G = 1e9
-
-    # ediff is error in sum of weight shares across states, compare to epsilon
-    ediff = 1  # called ver in Toky R code
-    iter = 1  # initialize iteration count called k in Toky R. R code
-    maxadiff = 100  # initial maximum % difference between sums of weights for a household and 100
-    maxpdiff = 100  # initial maximum % difference vs targets
-    m = targets.shape[0]  # number of states
-    wh = wh.reshape((-1, 1))  # ensure the proper shape
-    # compute before the loop to save a little time (calib calcs in the loop)
-    xmat_wh = xmat * wh  # shape -  n x number of targets
-    # i = 0
-
-    # Making a copy of Q is crucial. We don't want to change the
-    # original Q.
-    Q = Q.copy()
-
-    # absdiff = np.abs(Q.sum(axis=1) - 1)
-    # maxadiff = (absdiff).max()
-    # print("Max diff at start: ", maxadiff)
-
-    while (maxadiff > MAX_ABSDIFF) & (maxpdiff > MAX_PDIFF) & (iter <= MAX_ITER):
-        print("Iteration: ", iter)
-        for j in range(m):  # j indexes areas
-            # print("Area: {:d} of {:d}:{:d}".
-            #        format(j, 0, m - 1), end='')
-            g = rake(xmat_wh, Q[:, j], targets[j, :])
-            # g = gec(xmat_wh, Q[:, j], targets[j, :])
-            if np.isnan(g).any() or np.isinf(g).any() or g.any() == 0:
-                g = np.ones(g.size)
-                # print("not done")  # we'll need to do this one again
-            else:
-                pass
-                # print("done with this area")
-            Q[:, j] = Q[:, j] * g.reshape(g.size, )  # end for loop
-
-        # we have completed all areas for this iteration
-        # check stopping condition
-            # absdiff = np.abs(Q.sum(axis=1) - 1).sum()
-            # print(", Q sums of row diffs (vs 1): {:.4f}".format(absdiff))
-
-        # diff to be compared to epsilon, calculated BEFORE recalibrating Q
-        absdiff = np.abs(Q.sum(axis=1) - 1)  # sum of weight-shares for each household
-        maxadiff = absdiff.max() * 100  # largest sum across all households
-        # ediff = absdiff.sum()
-        if np.isinf(absdiff).any():
-            # these weight shares are not good, do another iteration
-            # ediff = EPS
-            maxadiff = MAX_ABSDIFF
-            print("Existence of infinite coefficients --> non-convergence.")
-
-        print("Weight sums max percent difference: {}".format(maxadiff))  # ediff
-        Q = Q / Q.sum(axis=1)[:, None]  # Recalibrate Q. Note None so that we have proper broadcasting
-
-        # calculate targets pct diff after recalibrating Q
-        whs = np.multiply(Q, wh.reshape((-1, 1)))  # faster
-        diff = np.dot(whs.T, xmat) - targets
-        abspdiff = np.abs(diff / targets * 100)
-        maxpdiff = abspdiff.max()
-        print("Target max percent difference: {}".format(maxpdiff))
-
-        iter = iter + 1
-        if iter > MAX_ITER:
-            print("Maximal number of iterations: non convergence .")
-        # end while loop
-
-    return Q
-
 
 
 # %% set up a random problem
@@ -1284,7 +949,7 @@ drops = get_drops(targets, ddrops)  # see the function
 # sum???
 
 targets.shape
-
+xmat.shape
 
 flist = targstates + ['XX']
 for k in drops.keys(): print(flist[k])
@@ -1301,7 +966,7 @@ ipdiff[24, ]
 drops = np.where(np.abs(ipdiff) > 100, True, False)  # True means we drop
 
 # stub 10 drops
-drops = np.where(np.abs(ipdiff) > 80, True, False)  # True means we drop
+drops = np.where(np.abs(ipdiff) > 100, True, False)  # True means we drop
 # create complex secondary where conditions for stub 10
 # condition = np.logical_not(comp3['variable'].isin(['nret_all', 'nret_mfjss', 'nret_single']))
 i_oa = (targets.shape[0] - 1, range(1, targets.shape[1]))  # index of other areas, except first
@@ -1313,30 +978,40 @@ drops[i_single] = True
 drops
 # For stub 10 we seem to need to drop it to 80, drop most of OA, and use entropy
 # or else use ddrops
+# stub 10 can be solved without drops using raking-ec default
 
 
 drops.sum()
 
-# TODO: keep best_Q based on best_absdiff
-
 # solve for optimal Q method can be raking or raking-ec
-Q_opt_r = qrake(Q, wh, xmat, targets, method='raking', maxiter=100)
-Q_opt_rd = qrake(Q, wh, xmat, targets, method='raking', maxiter=200, drops=drops)
+res_r = qrake(Q, wh, xmat, targets, method='raking', maxiter=100)
+res_rd = qrake(Q, wh, xmat, targets, method='raking', maxiter=100, drops=drops)
 
-Q_opt_ec = qrake(Q, wh, xmat, targets, method='raking-ec', maxiter=50)
-Q_opt_ecd = qrake(Q, wh, xmat, targets, method='raking-ec', maxiter=100, drops=drops)  # GOOD
-Q_opt_ecd = qrake(Q, wh, xmat, targets, method='raking-ec', maxiter=20, drops=drops, objective=QUADRATIC)
-# Q_opt_ec2 = qrake(Q_opt_r, wh, xmat, targets, method='raking-ec')
-# 0.0064              0.07 %
+res_ec = qrake(Q, wh, xmat, targets, method='raking-ec', maxiter=50)
+res_ecd = qrake(Q, wh, xmat, targets, method='raking-ec', maxiter=100, drops=drops)  # GOOD
+res_ecd = qrake(Q, wh, xmat, targets, method='raking-ec', maxiter=20, drops=drops, objective=QUADRATIC)
+res_ec2 = qrake(Q_opt_r, wh, xmat, targets, method='raking-ec')
 
-Q_opt = Q_opt_r
-Q_opt = Q_opt_rd
-Q_opt = Q_opt_ec
-Q_opt = Q_opt_ecd
+res = res_r
+res = res_rd
+res = res_ecd
+
+list(res)
+res['esecs']
+res['Q_opt']
+res['Q_opt'].sum()
+res['targets_opt']
+res['pctdiff']
+res['iter_opt']
+
+np.square(res['pctdiff']).sum()
+np.abs(res['pctdiff']).max()
+np.abs(res['pctdiff'][drops]).max()
 
 # check weights
-# whs_opt = np.dot(Q_opt.T, np.diag(wh)).T  # speed this up
-whs_opt = np.multiply(Q_opt, wh.reshape((-1, 1)))  # faster
+# whs_opt = np.multiply(Q_opt, wh.reshape((-1, 1)))  # faster
+whs_opt = res['whs_opt']
+
 wdiff = whs_opt.sum(axis=1) - wh
 np.round(wdiff, 2)
 np.quantile(wdiff, qtiles)
@@ -1344,9 +1019,14 @@ np.quantile(wdiff, qtiles)
 # np.quantile(whs_opt, qtiles)
 np.quantile(whs_opt / iwhs, qtiles)
 
+# look at targets
+good_targets = np.logical_not(drops)
+
 # check targets
 targets
-ctargs = np.dot(whs_opt.T, xmat)
+# ctargs = np.dot(whs_opt.T, xmat)
+ctargs = res['targets_opt']
+
 tdiff = ctargs - targets
 np.round(tdiff, 2)
 tpdiff = tdiff / targets * 100
