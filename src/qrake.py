@@ -1019,10 +1019,6 @@ res_ecd = qrake(Q, wh, xmat, targets, method='raking-ec', maxiter=100, drops=dro
 res_ecd = qrake(Q, wh, xmat, targets, method='raking-ec', maxiter=20, drops=drops, objective=QUADRATIC)
 res_ec2 = qrake(Q_opt_r, wh, xmat, targets, method='raking-ec')
 
-# 250
-    # Max abs percent difference                               5.937 %       173.884 %
-    # p99 of abs percent difference                            4.356 %       150.028 %
-    # p95 of abs percent difference                            1.099 %        39.383 %
 
 res = res_r
 res = res_rd
