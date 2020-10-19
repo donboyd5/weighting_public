@@ -5,9 +5,57 @@ Created on Sun Oct  4 05:11:04 2020
 @author: donbo
 """
 
+# %% imports
 import numpy as np
+from timeit import default_timer as timer
+from collections import namedtuple
+
+import scipy.optimize as spo
 
 
+# %% named tuples
+# create a named tuple of items to return
+fields = ('elapsed_seconds',
+          'whs_opt',
+          'geotargets_opt',
+          'beta_opt',
+          'delta_opt')
+Result = namedtuple('Result', fields, defaults=(None,) * len(fields))
+
+
+# %% poisson - the primary function
+
+def poisson(wh, xmat, geotargets):
+    a = timer()
+    # betavec0 = np.zeros(geotargets.size)
+    betavec0 = np.full(geotargets.size, 1e-12) # 1e-13 seems best
+    dw = get_diff_weights(geotargets)
+    spo_result = spo.least_squares(
+        fun=targets_diff,
+        x0=betavec0,
+        method='trf', jac='2-point', verbose=2,
+        ftol=1e-10, xtol=1e-10,
+        args=(wh, xmat, geotargets, dw))
+
+    # get return values
+    beta_opt = spo_result.x.reshape(geotargets.shape)
+    delta_opt = get_delta(wh, beta_opt, xmat)
+    whs_opt = get_geoweights(beta_opt, delta_opt, xmat)
+    geotargets_opt = get_geotargets(beta_opt, wh, xmat)
+
+    b = timer()
+
+    res = Result(elapsed_seconds = b - a,
+                 whs_opt = whs_opt,
+                 geotargets_opt = geotargets_opt,
+                 beta_opt = beta_opt,
+                 delta_opt = delta_opt)
+
+    return res
+
+
+
+# %% functions
 def get_delta(wh, beta, xmat):
     """Get vector of constants, 1 per household.
 
@@ -38,6 +86,29 @@ def get_delta(wh, beta, xmat):
     # delta[delta == 0] = 0.1  # experimental
     # delta[np.isnan(delta)] = 0.1
     return delta
+
+
+def get_diff_weights(geotargets, goal=100):
+    """
+    difference weights - a weight to be applied to each target in the
+      difference function so that it hits its goal
+      set the weight to 1 if the target value is zero
+
+    do this in a vectorized way
+    """
+
+    # avoid divide by zero or other problems
+
+    # numerator = np.full(geotargets.shape, goal)
+    # with np.errstate(divide='ignore'):
+    #     dw = numerator / geotargets
+    #     dw[geotargets == 0] = 1
+
+    goalmat = np.full(geotargets.shape, goal)
+    with np.errstate(divide='ignore'):  # turn off divide-by-zero warning
+        diff_weights = np.where(geotargets != 0, goalmat / geotargets, 1)
+
+    return diff_weights
 
 
 def get_geotargets(beta, wh, xmat):
