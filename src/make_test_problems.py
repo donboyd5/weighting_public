@@ -29,7 +29,8 @@ class Problem:
         self.whs = 10 + 10 * (1 + r)
         self.wh = self.whs.sum(axis=1)
         self.ws = self.whs.sum(axis=0)
-        self.targets = np.dot(self.whs.T, self.xmat)
+        self.geotargets = np.dot(self.whs.T, self.xmat)
+        self.targets = self.geotargets.sum(axis=0)
 
     def help():
         print("The Problem class creates random problems of arbitrary size",

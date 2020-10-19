@@ -23,14 +23,15 @@ from collections import namedtuple
 
 from timeit import default_timer as timer
 
+import ipopt  # requires special installation
+
 import src.utilities as ut
-import src.qmatrix as qm
-import src.poisson as ps
+import src.geoweight_qmatrix as qm
+import src.geoweight_poisson as ps
+import src.reweight_ipopt as rwi
 
 import scipy.optimize as spo
 # from scipy.optimize import least_squares
-
-import ipopt
 
 
 # %% Microweight class
@@ -63,6 +64,15 @@ class Microweight:
         self.targets = targets
         self.geotargets = geotargets
 
+    def reweight(self,
+                  method='ipopt', Q=None, drops=None,
+                  maxiter=100):
+        if method == 'ipopt':
+            x, info = rwi.rw_ipopt(self.wh, self.xmat, self.targets)
+        elif method == 'empcal':
+            pass
+        return x, info
+
     def geoweight(self,
                   method='qmatrix', Q=None, drops=None,
                   maxiter=100):
@@ -90,7 +100,7 @@ class Microweight:
             result = ps.poisson(self.wh, self.xmat, self.geotargets)
 
         # print(result.targets_opt)
-        self.result = result
+        # self.result = result
         return result # self.result
         # print(self.result.iter_opt)
         # end = timer()
