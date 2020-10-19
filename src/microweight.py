@@ -12,22 +12,27 @@ Functions:
 
 @author: donboyd5@gmail.com
 """
+
+# %% imports
 # needed for ipopt:
 from __future__ import print_function, unicode_literals
 
 from timeit import default_timer as timer
+
 import src.utilities as ut
+import src.qmatrix as qm
+import src.poisson as ps
 
 import numpy as np
 import pandas as pd
 
 import scipy.optimize as spo
-import src.poisson as ps
-import ipopt
-
 # from scipy.optimize import least_squares
 
+import ipopt
 
+
+# %% Microweight class
 class Microweight:
     """Class with data and methods for microdata weighting.
 
@@ -57,20 +62,36 @@ class Microweight:
         self.targets = targets
         self.geotargets = geotargets
 
-    def geoweight(self, method='qrake'):
-        methods = ('qrake', 'poisson')
-        start = timer()
-        h = self.xmat.shape[0]
-        k = self.xmat.shape[1]
-        s = self.geotargets.shape[0]
+    def geoweight(self,
+                  method='qmatrix', Q=None, drops=None,
+                  maxiter=100):
+
+        # start = timer()
+        # methods = ('qmatrix', 'qmatrix-ec', 'poisson')
+        # h = self.xmat.shape[0]
+        # k = self.xmat.shape[1]
+        # s = self.geotargets.shape[0]
 
         # input checks:
             # geotargets must by s x k
 
+        if method == 'qmatrix':
+            result = qm.qmatrix(self.wh, self.xmat, self.geotargets,
+                                Q=None,
+                                method='raking', drops=drops,
+                                maxiter=100)
+        elif method == 'qmatrix-ec':
+            pass
+        elif method == 'poisson':
+            pass
+
+        # print(result.targets_opt)
         self.result = result
-        end = timer()
-        self.elapsed_minutes = (end - start) / 60
-        self.retrieve_geovalues()
+        return result # self.result
+        # print(self.result.iter_opt)
+        # end = timer()
+        # self.elapsed_minutes = (end - start) / 60
+        # self.retrieve_geovalues()
 
     def retrieve_geovalues(self):
         self.beta_opt = self.result.x.reshape(self.geotargets.shape)
@@ -92,6 +113,7 @@ class Microweight:
               "weights sum to its national weight.\n", sep='\n')
 
 
+# %% helper functions
 def get_diff_weights(geotargets, goal=100):
     """
     difference weights - a weight to be applied to each target in the

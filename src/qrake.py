@@ -121,7 +121,9 @@ https://github.com/google/empirical_calibration/blob/master/notebooks/survey_cal
 
 import warnings
 import numpy as np
+import pandas as pd
 
+import puf.puf_constants as pc
 import src.make_test_problems as mtp
 import src.microweight as mw
 import experimental_code.geoweight as gw
@@ -149,16 +151,49 @@ STLIST = ['AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DC', 'DE', 'FL', 'GA',
 
 qtiles = [0, .01, .1, .25, .5, .75, .9, .99, 1]
 
+
 # %% classes and functions
 
 class Result:
     pass
 
+
+def get_geo_data():
+    IGNOREDIR = 'C:/programs_python/weighting/puf/ignore/'
+
+    ht2sub= pd.read_csv(IGNOREDIR + 'ht2sub.csv')
+    ht2sums= pd.read_csv(IGNOREDIR + 'ht2sums.csv')
+
+    pufsub = pd.read_csv(IGNOREDIR + 'pufsub.csv')
+    pufsums= pd.read_csv(IGNOREDIR + 'pufsums.csv')
+    return ht2sub, ht2sums, pufsub, pufsums
+
+
+def prep_stub(stub, targvars, targstates, ht2sub, ht2sums, pufsub, pufsums):
+    # get wh, xmat, and targets
+
+    pufstub = pufsub.query('HT2_STUB == @stub')[['pid', 'HT2_STUB', 'wtnew'] + targvars]
+    ptot = pufsums.query('HT2_STUB ==@stub')[targvars]
+
+    ht2stub = ht2sub.query('HT2_STUB == @stub & STATE != "US"')[['STATE', 'HT2_STUB'] + targvars]
+    htot = ht2sums.query('HT2_STUB ==@stub')[targvars]
+    # ptot / htot
+
+    # collapse ht2stub to target states and XX which will be all other
+    mask = np.logical_not(ht2stub['STATE'].isin(targstates))
+    ht2stub.loc[mask, 'STATE'] = 'XX'
+    ht2stub = ht2stub.groupby(['STATE', 'HT2_STUB']).sum()
+
+    # prepare the return values
+    wh = pufstub.wtnew.to_numpy()
+    xmat = np.asarray(pufstub[targvars], dtype=float)
+    targets = np.asarray(ht2stub, dtype=float)
+    return wh, xmat, targets
+
 def gec(xmat, wh, targets,
         target_weights: np.ndarray = None,
         objective: ec.Objective = ec.Objective.ENTROPY,
         increment: float = 0.001):
-
 
     # small_positive = np.nextafter(np.float64(0), np.float64(1))
     wh = np.where(wh == 0, SMALL_POSITIVE, wh)
@@ -185,6 +220,7 @@ def gec(xmat, wh, targets,
     g = np.array(g, dtype=float).reshape((-1, ))  # djb
 
     return g
+
 
 def get_drops(targets, drop_dict):
     drops = np.zeros(targets.shape, dtype=bool) # start with all values False
@@ -221,7 +257,7 @@ def qrake(Q, wh, xmat, targets,
     """
 
     # TODO:
-        # customize stopping rule based only on max target pct diff
+    #   customize stopping rule based only on max target pct diff
 
     def print_problem():
         print(' Number of households:                {:8,}'.format(wh.size))
@@ -649,10 +685,6 @@ drops['XX']
 drops[0]
 
 
-
-# %% get an AGI stub
-
-
 # %% test rake vs ec
 
 tnew = targets.sum(axis=0)
@@ -715,7 +747,7 @@ np.quantile(g3, qtiles)
 # targvars
 
 
-# %% set up agistub problem for qrake (devised in puf_geoweight up)
+# %% get all agi data
 
 # stub counts
 # HT2_STUB
@@ -729,6 +761,27 @@ np.quantile(g3, qtiles)
 # 8         18052
 # 9         12639
 # 10        29686
+
+ht2sub, ht2sums, pufsub, pufsums = get_geo_data()
+
+
+# %% set up agistub problem for qrake (devised in puf_geoweight up)
+
+stub = 7
+
+# choose a definition of targvars and targstates
+targvars = pc.targvars_all
+targstates = pc.STATES
+
+badstates = ['AK', 'ND', 'SD', 'UT', 'WY']
+targstates = [x for x in pc.STATES if x not in badstates]
+
+wh, xmat, targets = prep_stub(stub, targvars, targstates,
+                              ht2sub=ht2sub, ht2sums=ht2sums,
+                              pufsub=pufsub, pufsums=pufsums)
+wh.shape
+xmat.shape
+targets.shape
 
 # stubs, 7 variables, using all states
 # qtiles of target pct diff [0, 0.1, 0.25, 0.5, 0.75, 0.9, 1]
@@ -785,6 +838,9 @@ m = targets.shape[0]
 # # shares.sum()
 
 # Q = np.tile(shares, n).reshape((n, m))
+# n = xmat.shape[0]
+# m = targets.shape[0]
+# Q = np.tile(shares, n).reshape((n, m))
 # Q.shape
 # Q.sum(axis=1)
 
@@ -811,7 +867,6 @@ xmat_mstat[:, 0] = xmat[:, 0] - xmat[:, 1:3].sum(axis=1)  # create other
 Q_mstat = np.dot(xmat_mstat, shares_mstat.T)
 Q_mstat.shape
 Q_mstat.sum(axis=1)
-wh
 
 Q = Q_mstat.copy()
 
@@ -840,9 +895,12 @@ from scipy.optimize import lsq_linear
 # g = mw.Microweight(wh, xmat, geotargets=targets)
 g = gw.Geoweight(wh, xmat, targets=targets)
 g.geosolve()
+
 g.result
 g.result.cost
+g.result.cost * 2
 g.whs_opt
+g.elapsed_minutes
 
 np.quantile(g.whs_opt / iwhs, qtiles)
 
@@ -858,6 +916,13 @@ gtpdiff = gtdiff / targets * 100
 np.round(gtpdiff, 4)  # percent difference
 np.square(gtpdiff).sum()
 np.round(np.quantile(gtpdiff, qtiles), 1)
+
+whs_opt.shape
+g.whs_opt.shape
+
+np.round(g.whs_opt[:6, :5], 2)
+np.round(whs_opt[:6, :5], 2)
+
 
 # %% drops dict info
 

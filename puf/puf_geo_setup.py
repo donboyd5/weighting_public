@@ -51,13 +51,24 @@ def download_HT2(files, webdir, downdir):
         file.write(r.content)
 
 
+def get_geo_data():
+    IGNOREDIR = 'C:/programs_python/weighting/puf/ignore/'
+
+    ht2sub= pd.read_csv(IGNOREDIR + 'ht2sub.csv')
+    ht2sums= pd.read_csv(IGNOREDIR + 'ht2sums.csv')
+
+    pufsub = pd.read_csv(IGNOREDIR + 'pufsub.csv')
+    pufsums= pd.read_csv(IGNOREDIR + 'pufsums.csv')
+    return ht2sub, ht2sums, pufsub, pufsums
+
+
 def prep_stub(stub, targvars, targstates, ht2sub, ht2sums, pufsub, pufsums):
     # get wh, xmat, and targets
 
     pufstub = pufsub.query('HT2_STUB == @stub')[['pid', 'HT2_STUB', 'wtnew'] + targvars]
     ptot = pufsums.query('HT2_STUB ==@stub')[targvars]
 
-    ht2stub = ht2_sub.query('HT2_STUB == @stub & STATE != "US"')[['STATE', 'HT2_STUB'] + targvars]
+    ht2stub = ht2sub.query('HT2_STUB == @stub & STATE != "US"')[['STATE', 'HT2_STUB'] + targvars]
     htot = ht2sums.query('HT2_STUB ==@stub')[targvars]
     # ptot / htot
 
@@ -71,17 +82,6 @@ def prep_stub(stub, targvars, targstates, ht2sub, ht2sums, pufsub, pufsums):
     xmat = np.asarray(pufstub[targvars], dtype=float)
     targets = np.asarray(ht2stub, dtype=float)
     return wh, xmat, targets
-
-
-def get_geo_data():
-    IGNOREDIR = 'C:/programs_python/weighting/puf/ignore/'
-
-    ht2sub= pd.read_csv(IGNOREDIR + 'ht2sub.csv')
-    ht2sums= pd.read_csv(IGNOREDIR + 'ht2sums.csv')
-
-    pufsub = pd.read_csv(IGNOREDIR + 'pufsub.csv')
-    pufsums= pd.read_csv(IGNOREDIR + 'pufsums.csv')
-    return ht2sub, ht2sums, pufsub, pufsums
 
 
 # %% ONETIME download Historical Table 2
@@ -201,7 +201,7 @@ targstates = [x for x in pc.STATES if x not in badstates]
 pufsub.columns
 pufsub[['HT2_STUB', 'pid']].groupby(['HT2_STUB']).agg(['count'])
 
-wh, xmat, targets = prep_stub(4, targvars, targstates,
+wh, xmat, targets = prep_stub(7, targvars, targstates,
                               ht2sub=ht2sub, ht2sums=ht2sums,
                               pufsub=pufsub, pufsums=pufsums)
 wh.shape
