@@ -16,10 +16,133 @@ import ipopt
 # %% constants
 
 
-# %% setup
+# %% rw_ipopt - the primary function
+def rw_ipopt(wh, xmat, targets,
+             xlb, xub,
+             crange,
+             max_iter,
+             ccgoal,
+             objgoal,
+             quiet):
+    r"""
+    Build and solve the reweighting NLP.
+
+    Good general settings seem to be:
+        get_ccscale - use ccgoal=1, method='mean'
+        get_objscale - use xbase=1.2, objgoal=100
+        no other options set, besides obvious ones
+
+    Important resources:
+        https://pythonhosted.org/ipopt/reference.html#reference
+        https://coin-or.github.io/Ipopt/OPTIONS.html
+        ..\cyipopt\ipopt\ipopt_wrapper.py to see code from cyipopt author
+
+    Parameters
+    ----------
+    wh : float
+        DESCRIPTION.
+    xmat : ndarray
+        DESCRIPTION.
+    targets : ndarray
+        DESCRIPTION.
+    xlb : TYPE, optional
+        DESCRIPTION. The default is 0.1.
+    xub : TYPE, optional
+        DESCRIPTION. The default is 100.
+    crange : TYPE, optional
+        DESCRIPTION. The default is .03.
+    max_iter : TYPE, optional
+        DESCRIPTION. The default is 100.
+    ccgoal : TYPE, optional
+        DESCRIPTION. The default is 1.
+    objgoal : TYPE, optional
+        DESCRIPTION. The default is 100.
+    quiet : TYPE, optional
+        DESCRIPTION. The default is True.
+
+    Returns
+    -------
+    x : TYPE
+        DESCRIPTION.
+    info : TYPE
+        DESCRIPTION.
+
+    """
+    n = xmat.shape[0]
+    m = xmat.shape[1]
+
+    # xlb = 0.1
+    # xub = 100
+    # crange = .03
+    # max_iter = 100
+    # ccgoal = 1
+    # objgoal = 100
+    # quiet = True
+
+    # constraint coefficients (constant)
+    cc = (xmat.T * wh).T
+
+    # scale constraint coefficients and targets
+    ccscale = get_ccscale(cc, ccgoal=ccgoal, method='mean')
+    # ccscale = 1
+    cc = cc * ccscale  # mult by scale to have avg derivative meet our goal
+    # print(targets)
+    # targets_scaled = targets.copy() * ccscale  # djb do I need to copy?
+    print(ccscale)
+    targets_scaled = targets * ccscale  # djb do I need to copy?
+    # print(targets_scaled)
+
+    # IMPORTANT: define callbacks AFTER we have scaled cc and targets
+    # because callbacks must be initialized with scaled cc
+    callbacks = Reweight_callbacks(cc, quiet)
+
+    # x vector starting values, and lower and upper bounds
+    x0 = np.ones(n)
+    lb = np.full(n, xlb)
+    ub = np.full(n, xub)
+
+    # constraint lower and upper bounds
+    cl = targets_scaled - abs(targets_scaled) * crange
+    cu = targets_scaled + abs(targets_scaled) * crange
+
+    nlp = ipopt.problem(
+        n=n,
+        m=m,
+        problem_obj=callbacks,
+        lb=lb,
+        ub=ub,
+        cl=cl,
+        cu=cu)
+
+    # objective function scaling
+    # djb should I pass n and callbacks???
+    objscale = get_objscale(objgoal=objgoal, xbase=1.2, n=n, callbacks=callbacks)
+    # print(objscale)
+    nlp.addOption('obj_scaling_factor', objscale)  # multiplier
+
+    # define additional options as a dict
+    opts = {
+        'print_level': 5,
+        'file_print_level': 5,
+        'jac_d_constant': 'yes',
+        'hessian_constant': 'yes',
+        'max_iter': max_iter,
+        'mumps_mem_percent': 100,  # default 1000
+        'linear_solver': 'mumps'
+        }
+
+    # TODO: check against already set options, etc. see ipopt_wrapper.py
+    for option, value in opts.items():
+        nlp.addOption(option, value)
+
+    if(not quiet):
+        print(f'\n {"":10} Iter {"":25} obj {"":22} infeas')
+
+    x, info = nlp.solve(x0)
+    return x, info
 
 
-# %% solve
+# %% funcions and classes
 
 def get_ccscale(cc, ccgoal, method='mean'):
     """
@@ -70,73 +193,25 @@ def get_objscale(objgoal, xbase, n, callbacks):
     return objscale
 
 
-def rw_ipopt(wh, xmat, targets):
-    n = xmat.shape[0]
-    m = xmat.shape[1]
-    print()
+def merge_options(passed_options, default_options):
+    """
 
-    xlb = 0.1
-    xub = 100
-    crange = .03
-    max_iter = 100
-    ccgoal = 1
-    objgoal = 100
-    quiet = True
 
-    # constraint coefficients (constant)
-    cc = (xmat.T * wh).T
+    Parameters
+    ----------
+    passed_options : dict
+        DESCRIPTION.
+    default_options : dict
+        DESCRIPTION.
 
-    # scale constraint coefficients and targets
-    ccscale = get_ccscale(cc, ccgoal=ccgoal, method='mean')
-    # ccscale = 1
-    cc = cc * ccscale  # mult by scale to have avg derivative meet our goal
-    targets_scaled = targets.copy() * ccscale  # djb do I need to copy?
+    Returns
+    -------
+    options : TYPE
+        DESCRIPTION.
 
-    # IMPORTANT: define callbacks AFTER we have scaled cc and targets
-    # because callbacks must be initialized with scaled cc
-    callbacks = Reweight_callbacks(cc, quiet)
+    """
 
-    # x vector starting values, and lower and upper bounds
-    x0 = np.ones(n)
-    lb = np.full(n, xlb)
-    ub = np.full(n, xub)
-
-    # constraint lower and upper bounds
-    cl = targets_scaled - abs(targets) * crange
-    cu = targets_scaled + abs(targets) * crange
-
-    nlp = ipopt.problem(
-        n=n,
-        m=m,
-        problem_obj=callbacks,
-        lb=lb,
-        ub=ub,
-        cl=cl,
-        cu=cu)
-
-    # objective function scaling
-    # djb should I pass n and callbacks???
-    objscale = get_objscale(objgoal=objgoal, xbase=1.2, n=n, callbacks=callbacks)
-    # print(objscale)
-    nlp.addOption('obj_scaling_factor', objscale)  # multiplier
-
-    # define additional options as a dict
-    opts = {
-        'print_level': 5,
-        'file_print_level': 5,
-        'jac_d_constant': 'yes',
-        'hessian_constant': 'yes',
-        'max_iter': max_iter,
-        'mumps_mem_percent': 100,  # default 1000
-        'linear_solver': 'mumps'
-        }
-
-    # TODO: check against already set options, etc. see ipopt_wrapper.py
-    for option, value in opts.items():
-        nlp.addOption(option, value)
-
-    x, info = nlp.solve(x0)
-    return x, info
+    return options
 
 
 class Reweight_callbacks(object):
@@ -326,11 +401,10 @@ class Reweight_callbacks(object):
         # print("Objective value at iteration #%d is - %g"
         #     % (iter_count, obj_value))
         if(not self._quiet):
-            print("Iter, obj, infeas #%d %g %g"
-                  % (iter_count, obj_value, inf_pr))
+            print(f'{"":10} {iter_count:5d} {"":15} {obj_value:13.7e} {"":15} {inf_pr:13.7e}')
 
 
-class Reweight(ipopt.problem):
+class Reweight_oldclass(ipopt.problem):
     """
     Class for reweighting microdata file.
 

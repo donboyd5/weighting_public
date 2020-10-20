@@ -29,6 +29,8 @@ import src.utilities as ut
 import src.geoweight_qmatrix as qm
 import src.geoweight_poisson as ps
 import src.reweight_ipopt as rwi
+import src.reweight_empcalib as rwec
+import src.raking as raking
 
 import scipy.optimize as spo
 # from scipy.optimize import least_squares
@@ -65,12 +67,29 @@ class Microweight:
         self.geotargets = geotargets
 
     def reweight(self,
-                  method='ipopt', Q=None, drops=None,
-                  maxiter=100):
+                 method='ipopt',
+                 xlb=0.1, xub=100,
+                 crange=.03,
+                 max_iter=100,
+                 ccgoal=1,
+                 objgoal=100,
+                 increment=.001,
+                 quiet=True):
         if method == 'ipopt':
-            x, info = rwi.rw_ipopt(self.wh, self.xmat, self.targets)
+            x, info = rwi.rw_ipopt(self.wh, self.xmat, self.targets,
+                                   xlb=xlb, xub=xub,
+                                   crange=crange,
+                                   max_iter=max_iter,
+                                   ccgoal=ccgoal,
+                                   objgoal=objgoal,
+                                   quiet=quiet)
         elif method == 'empcal':
-            pass
+            info, x = rwec.gec(self.wh, self.xmat, self.targets,
+                               increment=increment)
+        elif method == 'rake':
+            x = raking.rake(self.xmat, self.wh, self.targets, max_iter=max_iter)
+            info = None
+
         return x, info
 
     def geoweight(self,
